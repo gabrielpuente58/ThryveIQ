@@ -121,22 +121,24 @@ export default function ChatScreen() {
         keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       >
         <View style={styles.inputContainer}>
-          <Input
-            value={inputText}
-            onChangeText={setInputText}
-            placeholder="Ask your coach anything..."
-            multiline
-            style={styles.input}
-            onSubmitEditing={handleSend}
-            returnKeyType="send"
-          />
-          <View style={styles.sendButtonContainer}>
-            <Button
-              title="Send"
-              onPress={handleSend}
-              loading={isLoading}
-              disabled={!inputText.trim()}
+          <View style={styles.inputRow}>
+            <Input
+              value={inputText}
+              onChangeText={setInputText}
+              placeholder="Ask your coach anything..."
+              multiline
+              style={styles.input}
+              onSubmitEditing={handleSend}
+              returnKeyType="send"
             />
+            <View style={styles.sendButtonContainer}>
+              <Button
+                title="Send"
+                onPress={handleSend}
+                loading={isLoading}
+                disabled={!inputText.trim()}
+              />
+            </View>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -207,12 +209,16 @@ const styles = StyleSheet.create({
     borderTopColor: COLORS.mediumGray,
     backgroundColor: COLORS.background,
   },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: SPACING.sm,
+  },
   input: {
-    marginBottom: SPACING.sm,
+    flex: 1,
     maxHeight: 100,
   },
   sendButtonContainer: {
-    alignSelf: "flex-end",
-    minWidth: 100,
+    marginBottom: SPACING.xs,
   },
 });
