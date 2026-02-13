@@ -124,15 +124,17 @@ export default function ChatScreen() {
       >
         <View style={styles.inputContainer}>
           <View style={styles.inputRow}>
-            <Input
-              value={inputText}
-              onChangeText={setInputText}
-              placeholder="Ask your coach anything..."
-              multiline
-              style={styles.input}
-              onSubmitEditing={handleSend}
-              returnKeyType="send"
-            />
+            <View style={styles.inputWrapper}>
+              <Input
+                value={inputText}
+                onChangeText={setInputText}
+                placeholder="Ask your coach anything..."
+                multiline
+                style={styles.input}
+                onSubmitEditing={handleSend}
+                returnKeyType="send"
+              />
+            </View>
             <TouchableOpacity
               style={[
                 styles.sendButton,
@@ -223,8 +225,10 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     gap: SPACING.sm,
   },
-  input: {
+  inputWrapper: {
     flex: 1,
+  },
+  input: {
     maxHeight: 100,
   },
   sendButton: {
