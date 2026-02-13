@@ -90,12 +90,8 @@ export default function ChatScreen() {
           item.isUser ? styles.userBubble : styles.aiBubble,
         ]}
       >
-        <Text style={styles.messageText}>{item.text}</Text>
-        <Text style={styles.timestamp}>
-          {item.timestamp.toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+        <Text style={[styles.messageText, item.isUser && styles.userMessageText]}>
+          {item.text}
         </Text>
       </Card>
     </View>
@@ -208,11 +204,8 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     lineHeight: 22,
   },
-  timestamp: {
-    fontSize: FONT_SIZES.xs,
-    color: COLORS.lightGray,
-    marginTop: SPACING.xs,
-    opacity: 0.7,
+  userMessageText: {
+    color: COLORS.background,
   },
   inputContainer: {
     padding: SPACING.md,
