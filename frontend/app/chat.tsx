@@ -6,10 +6,12 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  TouchableOpacity,
+  ActivityIndicator,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "../components/Screen";
 import { Input } from "../components/Input";
-import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { COLORS, SPACING, BORDER_RADIUS, FONT_SIZES } from "../constants/theme";
 
@@ -131,14 +133,21 @@ export default function ChatScreen() {
               onSubmitEditing={handleSend}
               returnKeyType="send"
             />
-            <View style={styles.sendButtonContainer}>
-              <Button
-                title="Send"
-                onPress={handleSend}
-                loading={isLoading}
-                disabled={!inputText.trim()}
-              />
-            </View>
+            <TouchableOpacity
+              style={[
+                styles.sendButton,
+                (!inputText.trim() || isLoading) && styles.sendButtonDisabled,
+              ]}
+              onPress={handleSend}
+              disabled={!inputText.trim() || isLoading}
+              activeOpacity={0.7}
+            >
+              {isLoading ? (
+                <ActivityIndicator color={COLORS.background} size="small" />
+              ) : (
+                <Ionicons name="send" size={20} color={COLORS.background} />
+              )}
+            </TouchableOpacity>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -218,7 +227,16 @@ const styles = StyleSheet.create({
     flex: 1,
     maxHeight: 100,
   },
-  sendButtonContainer: {
-    marginBottom: SPACING.xs,
+  sendButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
+  },
+  sendButtonDisabled: {
+    opacity: 0.4,
   },
 });
