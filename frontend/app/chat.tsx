@@ -47,17 +47,32 @@ export default function ChatScreen() {
     setInputText("");
     setIsLoading(true);
 
-    // Simulate AI response (replace with actual API call later)
-    setTimeout(() => {
+    try {
+      const API_URL = "http://localhost:8000";
+      const res = await fetch(`${API_URL}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userMessage.text }),
+      });
+      const data = await res.json();
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: "I'm here to help with your triathlon training! This is a placeholder response. We'll connect to the AI backend soon.",
+        text: data.reply,
         isUser: false,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, aiMessage]);
+    } catch {
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: "Sorry, I couldn't connect to the server. Make sure the backend is running.",
+        isUser: false,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   const renderMessage = ({ item }: { item: Message }) => (
