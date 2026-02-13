@@ -50,7 +50,7 @@ export default function ChatScreen() {
     setIsLoading(true);
 
     try {
-      const API_URL = "http://localhost:8000";
+      const API_URL = __DEV__ ? "http://192.168.4.200:8000" : "http://localhost:8000";
       const res = await fetch(`${API_URL}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
