@@ -87,20 +87,30 @@ def _distribute_sports(days_available: int, strongest: str, weakest: str) -> lis
     return result[:days_available]
 
 
-def _session_duration(sport: str, weekly_hours: float, days_available: int, zone: int) -> int:
-    avg_minutes = (weekly_hours * 60) / days_available
+def _compute_week_durations(
+    sport_order: list[str], weekly_hours: float, zones: list[int]
+) -> list[int]:
+    """Compute durations for a week's sessions that sum to weekly_hours."""
+    # Relative weights: bike longer, swim shorter, zone affects length
+    sport_weight = {"swim": 0.75, "bike": 1.25, "run": 1.0}
+    zone_weight = {1: 0.7, 2: 1.0, 3: 0.85, 4: 0.7, 5: 0.55}
 
-    # Adjust by sport: bike sessions tend to be longer, swim shorter
-    sport_multiplier = {"swim": 0.75, "bike": 1.3, "run": 1.0}
-    base = avg_minutes * sport_multiplier.get(sport, 1.0)
+    raw_weights = []
+    for sport, zone in zip(sport_order, zones):
+        w = sport_weight.get(sport, 1.0) * zone_weight.get(zone, 1.0)
+        raw_weights.append(w)
 
-    # Higher zones = shorter sessions
-    zone_multiplier = {1: 0.7, 2: 1.0, 3: 0.9, 4: 0.75, 5: 0.6}
-    adjusted = base * zone_multiplier.get(zone, 1.0)
+    total_weight = sum(raw_weights)
+    total_minutes = weekly_hours * 60
 
-    # Round to nearest 5 minutes, min 20, max 180
-    rounded = max(20, min(180, round(adjusted / 5) * 5))
-    return rounded
+    durations = []
+    for w in raw_weights:
+        minutes = (w / total_weight) * total_minutes
+        # Round to nearest 5, min 20, max 180
+        rounded = max(20, min(180, round(minutes / 5) * 5))
+        durations.append(rounded)
+
+    return durations
 
 
 def generate_plan(profile: dict) -> dict:
@@ -126,9 +136,16 @@ def generate_plan(profile: dict) -> dict:
         sport_order = _distribute_sports(days_available, strongest, weakest)
         training_days = DAYS_OF_WEEK[:days_available]
 
+        # Pre-compute zones for the week so we can budget durations
+        week_zones = [
+            _assign_zone(i, days_available, is_recovery)
+            for i in range(days_available)
+        ]
+        week_durations = _compute_week_durations(sport_order, week_hours, week_zones)
+
         for day_index, (day_name, sport) in enumerate(zip(training_days, sport_order)):
-            zone = _assign_zone(day_index, days_available, is_recovery)
-            duration = _session_duration(sport, week_hours, days_available, zone)
+            zone = week_zones[day_index]
+            duration = week_durations[day_index]
             description = PLACEHOLDER_DESCRIPTIONS.get(
                 (sport, zone),
                 f"Zone {zone} {sport} session. Maintain target intensity throughout."
