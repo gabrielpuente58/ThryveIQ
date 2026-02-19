@@ -7,7 +7,7 @@ import { ProgressBar } from "../../components/ProgressBar";
 import { OptionCard } from "../../components/OptionCard";
 import { useOnboarding } from "../../context/OnboardingContext";
 import { COLORS, SPACING, FONT_SIZES } from "../../constants/theme";
-const API_URL = "http://localhost:8000";
+import { API_URL } from "../../constants/api";
 
 const OPTIONS = [
   { value: "swim" as const, label: "Swim", description: "Swimming is my weakest discipline" },
