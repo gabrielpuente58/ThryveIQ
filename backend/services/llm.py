@@ -1,7 +1,6 @@
 import os
 import json
 import httpx
-from datetime import date
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -51,92 +50,165 @@ async def ollama_chat(messages: list[dict], system: str = "", format_json: bool 
         return res.json()["message"]["content"]
 
 
-def _weeks_until_race(race_date_str: str) -> int:
-    race_date = date.fromisoformat(race_date_str) if isinstance(race_date_str, str) else race_date_str
-    delta = race_date - date.today()
-    return max(1, delta.days // 7)
+def _extract_json(text: str) -> dict | None:
+    """Extract a JSON object from text that may contain thinking/extra content."""
+    # Try direct parse first
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Find the outermost JSON object
+    start = text.find("{")
+    if start == -1:
+        return None
+
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start:i + 1])
+                except json.JSONDecodeError:
+                    return None
+    return None
 
 
-async def generate_plan_with_llm(profile: dict) -> dict:
-    """Have the LLM build an entire training plan based on guide rail constraints."""
-    weeks = _weeks_until_race(profile["race_date"])
+PLAN_SYSTEM = """You are an expert Ironman 70.3 triathlon coach. Return ONLY valid JSON — no markdown, no explanation, no extra text.
+
+Session rules:
+- Each session: id, week, day, sport, duration_minutes, zone (1-5), zone_label, description
+- zone_label: Recovery (Z1), Aerobic (Z2), Tempo (Z3), Threshold (Z4), VO2max (Z5)
+- sport: swim, bike, run
+- id format: w{week}_d{day_number}_{sport}
+- description: 2-3 sentences with specific coaching cues for the sport, zone, and athlete level
+- Include recovery weeks (every 3-4 weeks): reduce volume ~40%, zones 1-2 only
+- Polarized model: ~70% Z1-2, ~20% Z3, ~10% Z4-5
+- Vary session types: endurance, tempo, intervals, technique/drills, brick workouts"""
+
+
+async def generate_phase_sessions(profile: dict, phase: dict, all_phases: list[dict]) -> list[dict]:
+    """Have the LLM generate all sessions for a single training phase."""
     days = profile["days_available"]
     training_days = DAYS_OF_WEEK[:days]
+    weekly_minutes = int(profile["weekly_hours"] * 60)
 
-    system = """You are an expert Ironman 70.3 triathlon coach building a personalized training plan.
-You must return ONLY valid JSON — no markdown, no explanation, no extra text.
+    phase_context = "\n".join(
+        f"  - {p['name']}: weeks {p['start_week']}-{p['end_week']} ({p['weeks']} weeks) — {p['focus']}"
+        for p in all_phases
+    )
 
-Rules:
-- Each session must have: id, week, day, sport, duration_minutes, zone (1-5), zone_label, description
-- zone_label must be one of: Recovery, Aerobic, Tempo, Threshold, VO2max
-- sport must be one of: swim, bike, run
-- id format: w{week}_d{day_number}_{sport} (e.g. w1_d1_swim)
-- description should be 2-3 sentences with specific coaching cues
-- Use periodization: build for 3 weeks, recovery week every 4th week
-- Recovery weeks should reduce volume by ~40% and keep zones at 1-2
-- Follow polarized training: ~70% Zone 1-2, ~20% Zone 3, ~10% Zone 4-5
-- Include variety: long sessions, tempo work, intervals, technique/drill sessions, brick workouts
-- Total weekly duration must stay within the athlete's weekly hours budget"""
-
-    prompt = f"""Build a complete training plan with these constraints:
+    prompt = f"""Generate training sessions for the {phase['name']} phase.
 
 Athlete:
 - Goal: {profile['goal']}
 - Experience: {profile['experience']}
-- Race date: {profile['race_date']} ({weeks} weeks away)
-- Weekly hours available: {profile['weekly_hours']}
-- Training days per week: {days} ({', '.join(training_days)})
-- Strongest discipline: {profile['strongest_discipline']}
-- Weakest discipline: {profile['weakest_discipline']}
 - Background: {profile['current_background']}
+- Strongest: {profile['strongest_discipline']}
+- Weakest: {profile['weakest_discipline']} (give ~20% more sessions to this discipline)
 
-Requirements:
-- Generate {weeks} weeks of training
-- {days} sessions per week on {', '.join(training_days)}
-- Give the weakest discipline ({profile['weakest_discipline']}) ~20% more sessions
-- Total duration per week should be close to {profile['weekly_hours']} hours ({int(profile['weekly_hours'] * 60)} minutes)
-- Recovery weeks (every 4th week): reduce to ~{int(profile['weekly_hours'] * 0.6 * 60)} minutes total
+Plan overview:
+{phase_context}
+
+Current phase: {phase['name']}
+- Weeks {phase['start_week']} through {phase['end_week']} ({phase['weeks']} weeks)
+- Focus: {phase['focus']}
+
+Constraints:
+- {days} sessions per week on: {', '.join(training_days)}
+- Weekly volume target: ~{weekly_minutes} minutes ({profile['weekly_hours']} hours)
+- Week numbers must be {phase['start_week']} through {phase['end_week']}
 
 Return JSON: {{"sessions": [...]}}"""
 
     try:
-        response = await ollama_generate(prompt, system=system, format_json=True)
-        parsed = json.loads(response)
-        sessions = parsed.get("sessions", [])
+        response = await ollama_chat(
+            [{"role": "user", "content": prompt}],
+            system=PLAN_SYSTEM,
+        )
+        parsed = _extract_json(response)
 
-        if not sessions:
-            return None
+        if not parsed or "sessions" not in parsed:
+            return []
 
-        # Validate and clean up sessions
-        valid_sports = {"swim", "bike", "run"}
-        valid_zones = {1, 2, 3, 4, 5}
-        zone_labels = {1: "Recovery", 2: "Aerobic", 3: "Tempo", 4: "Threshold", 5: "VO2max"}
-        cleaned = []
-
-        for s in sessions:
-            sport = s.get("sport", "").lower()
-            zone = s.get("zone", 2)
-            if sport not in valid_sports:
-                continue
-            if zone not in valid_zones:
-                zone = 2
-
-            cleaned.append({
-                "id": s.get("id", f"w{s.get('week', 1)}_d{len(cleaned) + 1}_{sport}"),
-                "week": s.get("week", 1),
-                "day": s.get("day", "Monday"),
-                "sport": sport,
-                "duration_minutes": max(20, min(180, s.get("duration_minutes", 60))),
-                "zone": zone,
-                "zone_label": zone_labels.get(zone, "Aerobic"),
-                "description": s.get("description", f"Zone {zone} {sport} session."),
-            })
-
-        return {
-            "weeks_until_race": weeks,
-            "sessions": cleaned,
-        }
+        return _validate_sessions(parsed["sessions"], phase)
 
     except Exception as e:
-        print(f"LLM plan generation failed: {e}")
-        return None
+        print(f"LLM phase generation failed for {phase['name']}: {e}")
+        return []
+
+
+async def generate_phase_previews(profile: dict, phases: list[dict], generated_phase: str) -> dict:
+    """Have the LLM describe what future phases will focus on (no exact workouts)."""
+    future_phases = [p for p in phases if p["name"] != generated_phase]
+    if not future_phases:
+        return {}
+
+    phase_list = "\n".join(
+        f"- {p['name']}: weeks {p['start_week']}-{p['end_week']} ({p['weeks']} weeks)"
+        for p in future_phases
+    )
+
+    prompt = f"""For this {profile['goal']} triathlete ({profile['experience']} level), describe what each future training phase will focus on.
+
+Athlete weakest discipline: {profile['weakest_discipline']}
+Athlete strongest discipline: {profile['strongest_discipline']}
+
+Future phases:
+{phase_list}
+
+For each phase give: the training focus, key session types they can expect, and how intensity/volume will change.
+
+Return JSON: {{"previews": [{{"phase": "Build", "summary": "2-3 sentence description..."}}]}}"""
+
+    try:
+        response = await ollama_chat(
+            [{"role": "user", "content": prompt}],
+            system="You are an expert Ironman 70.3 triathlon coach. Return ONLY valid JSON.",
+        )
+        parsed = _extract_json(response)
+        if parsed and "previews" in parsed:
+            return {p["phase"]: p["summary"] for p in parsed["previews"]}
+        return {}
+    except Exception as e:
+        print(f"LLM phase preview generation failed: {e}")
+        return {}
+
+
+def _validate_sessions(sessions: list, phase: dict) -> list[dict]:
+    """Validate and clean up LLM-generated sessions."""
+    valid_sports = {"swim", "bike", "run"}
+    valid_zones = {1, 2, 3, 4, 5}
+    zone_labels = {1: "Recovery", 2: "Aerobic", 3: "Tempo", 4: "Threshold", 5: "VO2max"}
+    cleaned = []
+
+    for s in sessions:
+        if not isinstance(s, dict):
+            continue
+        sport = str(s.get("sport", "")).lower()
+        zone = s.get("zone", 2)
+        week = s.get("week", phase["start_week"])
+
+        if sport not in valid_sports:
+            continue
+        if zone not in valid_zones:
+            zone = 2
+        if week < phase["start_week"] or week > phase["end_week"]:
+            continue
+
+        cleaned.append({
+            "id": s.get("id", f"w{week}_d{len(cleaned) + 1}_{sport}"),
+            "week": week,
+            "day": s.get("day", "Monday"),
+            "sport": sport,
+            "duration_minutes": max(20, min(180, int(s.get("duration_minutes", 60)))),
+            "zone": zone,
+            "zone_label": zone_labels.get(zone, "Aerobic"),
+            "description": s.get("description", f"Zone {zone} {sport} session."),
+        })
+
+    return cleaned
