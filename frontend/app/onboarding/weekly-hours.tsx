@@ -1,10 +1,23 @@
 import { useRouter } from "expo-router";
-import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+  Pressable,
+  InputAccessoryView,
+  TouchableOpacity,
+} from "react-native";
 import { Screen } from "../../components/Screen";
 import { Button } from "../../components/Button";
 import { ProgressBar } from "../../components/ProgressBar";
 import { useOnboarding } from "../../context/OnboardingContext";
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from "../../constants/theme";
+
+const INPUT_ACCESSORY_ID = "weekly-hours-done";
 
 export default function WeeklyHoursScreen() {
   const router = useRouter();
@@ -17,7 +30,7 @@ export default function WeeklyHoursScreen() {
   };
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+    <Pressable style={{ flex: 1 }} onPress={Keyboard.dismiss}>
       <Screen style={styles.container}>
         <ProgressBar current={5} total={8} />
         <KeyboardAvoidingView
@@ -34,8 +47,7 @@ export default function WeeklyHoursScreen() {
               placeholder="e.g. 8"
               placeholderTextColor={COLORS.lightGray}
               keyboardType="decimal-pad"
-              returnKeyType="done"
-              onSubmitEditing={Keyboard.dismiss}
+              inputAccessoryViewID={Platform.OS === "ios" ? INPUT_ACCESSORY_ID : undefined}
               value={data.weekly_hours !== undefined ? String(data.weekly_hours) : ""}
               onChangeText={handleChange}
             />
@@ -51,7 +63,16 @@ export default function WeeklyHoursScreen() {
           />
         </View>
       </Screen>
-    </TouchableWithoutFeedback>
+      {Platform.OS === "ios" && (
+        <InputAccessoryView nativeID={INPUT_ACCESSORY_ID}>
+          <View style={styles.accessory}>
+            <TouchableOpacity onPress={Keyboard.dismiss}>
+              <Text style={styles.doneButton}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      )}
+    </Pressable>
   );
 }
 
@@ -95,5 +116,18 @@ const styles = StyleSheet.create({
   buttons: {
     flexDirection: "row",
     gap: SPACING.md,
+  },
+  accessory: {
+    backgroundColor: COLORS.mediumGray,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    alignItems: "flex-end",
+  },
+  doneButton: {
+    fontSize: FONT_SIZES.md,
+    fontWeight: "600",
+    color: COLORS.primary,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
   },
 });
