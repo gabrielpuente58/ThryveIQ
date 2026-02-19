@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform } from "react-native";
+import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback } from "react-native";
 import { Screen } from "../../components/Screen";
 import { Button } from "../../components/Button";
 import { ProgressBar } from "../../components/ProgressBar";
@@ -17,37 +17,41 @@ export default function WeeklyHoursScreen() {
   };
 
   return (
-    <Screen style={styles.container}>
-      <ProgressBar current={5} total={8} />
-      <KeyboardAvoidingView
-        style={styles.content}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
-        <Text style={styles.title}>Weekly training hours</Text>
-        <Text style={styles.subtitle}>
-          How many hours per week can you dedicate to training?
-        </Text>
-        <View style={styles.inputRow}>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. 8"
-            placeholderTextColor={COLORS.lightGray}
-            keyboardType="decimal-pad"
-            value={data.weekly_hours !== undefined ? String(data.weekly_hours) : ""}
-            onChangeText={handleChange}
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <Screen style={styles.container}>
+        <ProgressBar current={5} total={8} />
+        <KeyboardAvoidingView
+          style={styles.content}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <Text style={styles.title}>Weekly training hours</Text>
+          <Text style={styles.subtitle}>
+            How many hours per week can you dedicate to training?
+          </Text>
+          <View style={styles.inputRow}>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. 8"
+              placeholderTextColor={COLORS.lightGray}
+              keyboardType="decimal-pad"
+              returnKeyType="done"
+              onSubmitEditing={Keyboard.dismiss}
+              value={data.weekly_hours !== undefined ? String(data.weekly_hours) : ""}
+              onChangeText={handleChange}
+            />
+            <Text style={styles.unit}>hours / week</Text>
+          </View>
+        </KeyboardAvoidingView>
+        <View style={styles.buttons}>
+          <Button title="Back" variant="secondary" onPress={() => router.back()} />
+          <Button
+            title="Next"
+            onPress={() => router.push("/onboarding/days-available")}
+            disabled={!data.weekly_hours || data.weekly_hours <= 0}
           />
-          <Text style={styles.unit}>hours / week</Text>
         </View>
-      </KeyboardAvoidingView>
-      <View style={styles.buttons}>
-        <Button title="Back" variant="secondary" onPress={() => router.back()} />
-        <Button
-          title="Next"
-          onPress={() => router.push("/onboarding/days-available")}
-          disabled={!data.weekly_hours || data.weekly_hours <= 0}
-        />
-      </View>
-    </Screen>
+      </Screen>
+    </TouchableWithoutFeedback>
   );
 }
 
