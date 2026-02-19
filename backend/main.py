@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from routers.profiles import router as profiles_router
+from routers.plans import router as plans_router
 
 app = FastAPI(title="ThryveIQ API")
 
@@ -13,6 +14,7 @@ app.add_middleware(
 )
 
 app.include_router(profiles_router)
+app.include_router(plans_router)
 
 STOCK_RESPONSES = {
     "swim": "For swimming, focus on your stroke technique before building distance. Try drills like catch-up and fingertip drag to improve efficiency.",
