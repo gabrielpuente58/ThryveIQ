@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query
 from models.plan import GeneratePlanRequest, PlanResponse, Session
 from db.supabase import supabase
 from services.plan_engine import generate_plan
+from services.llm import generate_session_descriptions
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -24,6 +25,24 @@ async def generate(request: GeneratePlanRequest):
 
     # Generate plan from rule engine
     plan_data = generate_plan(profile)
+
+    # Generate LLM descriptions for week 1 sessions (batch by week to limit tokens)
+    # We do all weeks but send in batches to avoid overwhelming the LLM
+    sessions = plan_data["sessions"]
+    weeks = set(s["week"] for s in sessions)
+    for week in weeks:
+        week_sessions = [s for s in sessions if s["week"] == week]
+        # Send minimal data to LLM (no description field needed)
+        llm_input = [
+            {"id": s["id"], "sport": s["sport"], "day": s["day"],
+             "zone": s["zone"], "zone_label": s["zone_label"],
+             "duration_minutes": s["duration_minutes"]}
+            for s in week_sessions
+        ]
+        desc_map = await generate_session_descriptions(llm_input, profile)
+        for s in week_sessions:
+            if s["id"] in desc_map:
+                s["description"] = desc_map[s["id"]]
 
     # Upsert to plans table (one active plan per user)
     row = {
