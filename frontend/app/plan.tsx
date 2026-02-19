@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Screen } from "../components/Screen";
+import { SessionCard } from "../components/SessionCard";
 import { API_URL } from "../constants/api";
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from "../constants/theme";
 
@@ -100,11 +101,15 @@ export default function PlanScreen() {
 
       <ScrollView style={styles.sessionList} showsVerticalScrollIndicator={false}>
         {weekSessions.map((session) => (
-          <View key={session.id} style={styles.placeholder}>
-            <Text style={styles.placeholderText}>
-              {session.day} — {session.sport} — {session.duration_minutes}min — Z{session.zone}
-            </Text>
-          </View>
+          <SessionCard
+            key={session.id}
+            day={session.day}
+            sport={session.sport}
+            duration_minutes={session.duration_minutes}
+            zone={session.zone}
+            zone_label={session.zone_label}
+            description={session.description}
+          />
         ))}
       </ScrollView>
     </Screen>
@@ -153,15 +158,5 @@ const styles = StyleSheet.create({
   },
   sessionList: {
     flex: 1,
-  },
-  placeholder: {
-    backgroundColor: COLORS.mediumGray,
-    borderRadius: BORDER_RADIUS.md,
-    padding: SPACING.md,
-    marginBottom: SPACING.sm,
-  },
-  placeholderText: {
-    color: COLORS.white,
-    fontSize: FONT_SIZES.md,
   },
 });
