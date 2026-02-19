@@ -51,15 +51,27 @@ export default function ChatScreen() {
     setIsLoading(true);
 
     try {
-      const res = await fetch(`${API_URL}/chat`, {
+      // Build history from existing messages (exclude the welcome message)
+      const history = messages
+        .filter((m) => m.id !== "1")
+        .map((m) => ({
+          role: m.isUser ? "user" : "assistant",
+          content: m.text,
+        }));
+
+      const res = await fetch(`${API_URL}/chat/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage.text }),
+        body: JSON.stringify({
+          message: userMessage.text,
+          history,
+          user_id: "00000000-0000-0000-0000-000000000001",
+        }),
       });
       const data = await res.json();
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: data.reply,
+        text: data.response,
         isUser: false,
         timestamp: new Date(),
       };
