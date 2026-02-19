@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query
-from models.plan import GeneratePlanRequest, PlanResponse, Session
+from models.plan import GeneratePlanRequest, PlanResponse, Session, Phase
 from db.supabase import supabase
-from services.llm import generate_plan_with_llm
+from services.phases import calculate_phases
+from services.llm import generate_phase_sessions, generate_phase_previews
 from services.plan_engine import generate_plan as generate_plan_fallback
 
 router = APIRouter(prefix="/plans", tags=["plans"])
@@ -23,18 +24,39 @@ async def generate(request: GeneratePlanRequest):
 
     profile = profile_result.data
 
-    # Try LLM-generated plan first, fall back to rule engine
-    plan_data = await generate_plan_with_llm(profile)
+    # Calculate phases
+    phases = calculate_phases(profile["race_date"])
 
-    if not plan_data or not plan_data.get("sessions"):
-        print("LLM plan generation failed, using rule engine fallback")
-        plan_data = generate_plan_fallback(profile)
+    # Generate first phase sessions via LLM
+    first_phase = phases[0]
+    all_sessions = await generate_phase_sessions(profile, first_phase, phases)
 
-    # Save to plans table (one active plan per user)
+    # If LLM failed, fall back to rule engine for the whole plan
+    if not all_sessions:
+        print("LLM failed for first phase, using rule engine fallback")
+        fallback = generate_plan_fallback(profile)
+        all_sessions = fallback["sessions"]
+
+    # Get previews for future phases
+    previews = await generate_phase_previews(profile, phases, first_phase["name"])
+
+    # Attach previews to phase objects
+    phase_data = []
+    for p in phases:
+        phase_data.append({
+            **p,
+            "preview": previews.get(p["name"], None),
+        })
+
+    # Calculate weeks_until_race
+    weeks_until_race = phases[-1]["end_week"] if phases else 1
+
+    # Save to Supabase
     row = {
         "user_id": request.user_id,
-        "weeks_until_race": plan_data["weeks_until_race"],
-        "sessions": plan_data["sessions"],
+        "weeks_until_race": weeks_until_race,
+        "phases": phase_data,
+        "sessions": all_sessions,
     }
 
     supabase.table("plans").delete().eq("user_id", request.user_id).execute()
@@ -49,6 +71,7 @@ async def generate(request: GeneratePlanRequest):
         user_id=saved["user_id"],
         generated_at=saved["generated_at"],
         weeks_until_race=saved["weeks_until_race"],
+        phases=[Phase(**p) for p in saved["phases"]],
         sessions=[Session(**s) for s in saved["sessions"]],
     )
 
@@ -73,6 +96,7 @@ async def get_current_plan(user_id: str = Query(...)):
         user_id=saved["user_id"],
         generated_at=saved["generated_at"],
         weeks_until_race=saved["weeks_until_race"],
+        phases=[Phase(**p) for p in saved.get("phases", [])],
         sessions=[Session(**s) for s in saved["sessions"]],
     )
 
