@@ -16,7 +16,7 @@ export default function Index() {
           Get personalized training plans, nutrition advice, and expert guidance
           powered by artificial intelligence.
         </Text>
-        <Button title="Start Coaching" onPress={() => router.push("/chat")} />
+        <Button title="Start Coaching" onPress={() => router.push("/onboarding/goal")} />
       </View>
     </Screen>
   );
