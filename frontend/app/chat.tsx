@@ -14,6 +14,7 @@ import { Screen } from "../components/Screen";
 import { Input } from "../components/Input";
 import { Card } from "../components/Card";
 import { COLORS, SPACING, BORDER_RADIUS, FONT_SIZES } from "../constants/theme";
+import { API_URL } from "../constants/api";
 
 interface Message {
   id: string;
@@ -50,7 +51,6 @@ export default function ChatScreen() {
     setIsLoading(true);
 
     try {
-      const API_URL = __DEV__ ? "http://192.168.4.200:8000" : "http://localhost:8000";
       const res = await fetch(`${API_URL}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
