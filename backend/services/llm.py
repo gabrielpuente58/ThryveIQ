@@ -92,54 +92,60 @@ Session rules:
 
 
 async def generate_phase_sessions(profile: dict, phase: dict, all_phases: list[dict]) -> list[dict]:
-    """Have the LLM generate all sessions for a single training phase."""
+    """Have the LLM generate sessions for a phase, one week at a time."""
     days = profile["days_available"]
     training_days = DAYS_OF_WEEK[:days]
     weekly_minutes = int(profile["weekly_hours"] * 60)
+    is_recovery_interval = 4  # every 4th week is recovery
 
-    phase_context = "\n".join(
-        f"  - {p['name']}: weeks {p['start_week']}-{p['end_week']} ({p['weeks']} weeks) — {p['focus']}"
-        for p in all_phases
-    )
+    all_sessions = []
 
-    prompt = f"""Generate training sessions for the {phase['name']} phase.
+    for week_num in range(phase["start_week"], phase["end_week"] + 1):
+        is_recovery = week_num % is_recovery_interval == 0
+        week_minutes = int(weekly_minutes * 0.6) if is_recovery else weekly_minutes
+        week_type = "RECOVERY week (reduce volume ~40%, zones 1-2 only)" if is_recovery else f"normal {phase['name']} training week"
 
-Athlete:
-- Goal: {profile['goal']}
-- Experience: {profile['experience']}
-- Background: {profile['current_background']}
-- Strongest: {profile['strongest_discipline']}
-- Weakest: {profile['weakest_discipline']} (give ~20% more sessions to this discipline)
+        prompt = f"""Generate exactly {days} training sessions for week {week_num}.
 
-Plan overview:
-{phase_context}
+Athlete: {profile['experience']} triathlete, goal: {profile['goal']}
+Weakest: {profile['weakest_discipline']} (prioritize), Strongest: {profile['strongest_discipline']}
+Phase: {phase['name']} — {phase['focus']}
+This is a {week_type}.
 
-Current phase: {phase['name']}
-- Weeks {phase['start_week']} through {phase['end_week']} ({phase['weeks']} weeks)
-- Focus: {phase['focus']}
+Generate exactly {days} sessions, one per day:
+{chr(10).join(f'- {day}: one session' for day in training_days)}
 
-Constraints:
-- {days} sessions per week on: {', '.join(training_days)}
-- Weekly volume target: ~{weekly_minutes} minutes ({profile['weekly_hours']} hours)
-- Week numbers must be {phase['start_week']} through {phase['end_week']}
+Total weekly volume: ~{week_minutes} minutes.
+All sessions must have week: {week_num}.
 
-Return JSON: {{"sessions": [...]}}"""
+Return JSON: {{"sessions": [{{"id": "w{week_num}_d1_swim", "week": {week_num}, "day": "{training_days[0]}", "sport": "swim", "duration_minutes": 60, "zone": 2, "zone_label": "Aerobic", "description": "..."}}]}}"""
 
-    try:
-        response = await ollama_chat(
-            [{"role": "user", "content": prompt}],
-            system=PLAN_SYSTEM,
-        )
-        parsed = _extract_json(response)
+        try:
+            response = await ollama_chat(
+                [{"role": "user", "content": prompt}],
+                system=PLAN_SYSTEM,
+            )
+            parsed = _extract_json(response)
 
-        if not parsed or "sessions" not in parsed:
-            return []
+            if parsed and "sessions" in parsed:
+                # Force correct week number on all sessions
+                week_phase = {"start_week": week_num, "end_week": week_num,
+                              "name": phase["name"], "weeks": 1, "focus": phase["focus"]}
+                week_sessions = _validate_sessions(parsed["sessions"], week_phase)
 
-        return _validate_sessions(parsed["sessions"], phase)
+                # Ensure correct day assignment
+                for i, s in enumerate(week_sessions[:days]):
+                    s["day"] = training_days[i]
+                    s["id"] = f"w{week_num}_d{i + 1}_{s['sport']}"
 
-    except Exception as e:
-        print(f"LLM phase generation failed for {phase['name']}: {e}")
-        return []
+                all_sessions.extend(week_sessions[:days])
+            else:
+                print(f"LLM returned no sessions for week {week_num}")
+
+        except Exception as e:
+            print(f"LLM failed for week {week_num}: {e}")
+
+    return all_sessions
 
 
 async def generate_phase_previews(profile: dict, phases: list[dict], generated_phase: str) -> dict:
