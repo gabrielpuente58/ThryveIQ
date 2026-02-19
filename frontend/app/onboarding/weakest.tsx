@@ -39,7 +39,18 @@ export default function WeakestScreen() {
         throw new Error(err);
       }
 
-      router.replace("/chat");
+      // Generate training plan
+      const planRes = await fetch(`${API_URL}/plans/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: "00000000-0000-0000-0000-000000000001" }),
+      });
+
+      if (!planRes.ok) {
+        throw new Error("Failed to generate plan");
+      }
+
+      router.replace("/plan");
     } catch (err) {
       Alert.alert("Error", "Failed to save profile. Please try again.");
       console.error(err);
