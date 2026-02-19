@@ -7,11 +7,7 @@ import { ProgressBar } from "../../components/ProgressBar";
 import { OptionCard } from "../../components/OptionCard";
 import { useOnboarding } from "../../context/OnboardingContext";
 import { COLORS, SPACING, FONT_SIZES } from "../../constants/theme";
-import Constants from "expo-constants";
-
-const API_URL = __DEV__
-  ? `http://${Constants.expoConfig?.hostUri?.split(":")[0] ?? "localhost"}:8000`
-  : "http://localhost:8000";
+const API_URL = "http://localhost:8000";
 
 const OPTIONS = [
   { value: "swim" as const, label: "Swim", description: "Swimming is my weakest discipline" },
