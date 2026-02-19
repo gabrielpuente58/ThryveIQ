@@ -1,0 +1,167 @@
+import { useEffect, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+} from "react-native";
+import { Screen } from "../components/Screen";
+import { API_URL } from "../constants/api";
+import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from "../constants/theme";
+
+interface Session {
+  id: string;
+  week: number;
+  day: string;
+  sport: string;
+  duration_minutes: number;
+  zone: number;
+  zone_label: string;
+  description: string;
+}
+
+interface Plan {
+  id: string;
+  weeks_until_race: number;
+  sessions: Session[];
+}
+
+export default function PlanScreen() {
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [selectedWeek, setSelectedWeek] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchPlan = async () => {
+      try {
+        const res = await fetch(
+          `${API_URL}/plans/current?user_id=00000000-0000-0000-0000-000000000001`
+        );
+        if (!res.ok) throw new Error("No plan found");
+        const data: Plan = await res.json();
+        setPlan(data);
+      } catch (err) {
+        setError("Could not load your plan. Generate one first.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchPlan();
+  }, []);
+
+  if (loading) {
+    return (
+      <Screen style={styles.centered}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </Screen>
+    );
+  }
+
+  if (error || !plan) {
+    return (
+      <Screen style={styles.centered}>
+        <Text style={styles.errorText}>{error}</Text>
+      </Screen>
+    );
+  }
+
+  const weeks = Array.from({ length: plan.weeks_until_race }, (_, i) => i + 1);
+  const weekSessions = plan.sessions.filter((s) => s.week === selectedWeek);
+
+  return (
+    <Screen>
+      <Text style={styles.title}>Your Training Plan</Text>
+
+      <View style={styles.pillsContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.pillsRow}>
+            {weeks.map((week) => (
+              <TouchableOpacity
+                key={week}
+                style={[styles.pill, selectedWeek === week && styles.pillSelected]}
+                onPress={() => setSelectedWeek(week)}
+              >
+                <Text
+                  style={[
+                    styles.pillText,
+                    selectedWeek === week && styles.pillTextSelected,
+                  ]}
+                >
+                  W{week}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
+      </View>
+
+      <ScrollView style={styles.sessionList} showsVerticalScrollIndicator={false}>
+        {weekSessions.map((session) => (
+          <View key={session.id} style={styles.placeholder}>
+            <Text style={styles.placeholderText}>
+              {session.day} — {session.sport} — {session.duration_minutes}min — Z{session.zone}
+            </Text>
+          </View>
+        ))}
+      </ScrollView>
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  centered: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  title: {
+    fontSize: FONT_SIZES.xxl,
+    fontWeight: "bold",
+    color: COLORS.white,
+    marginBottom: SPACING.md,
+  },
+  errorText: {
+    fontSize: FONT_SIZES.md,
+    color: COLORS.lightGray,
+    textAlign: "center",
+  },
+  pillsContainer: {
+    marginBottom: SPACING.md,
+  },
+  pillsRow: {
+    flexDirection: "row",
+    gap: SPACING.sm,
+  },
+  pill: {
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    borderRadius: BORDER_RADIUS.xl,
+    backgroundColor: COLORS.mediumGray,
+  },
+  pillSelected: {
+    backgroundColor: COLORS.primary,
+  },
+  pillText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: "600",
+    color: COLORS.lightGray,
+  },
+  pillTextSelected: {
+    color: COLORS.background,
+  },
+  sessionList: {
+    flex: 1,
+  },
+  placeholder: {
+    backgroundColor: COLORS.mediumGray,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  placeholderText: {
+    color: COLORS.white,
+    fontSize: FONT_SIZES.md,
+  },
+});
