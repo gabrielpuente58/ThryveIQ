@@ -71,7 +71,7 @@ async def generate(request: GeneratePlanRequest):
         user_id=saved["user_id"],
         generated_at=saved["generated_at"],
         weeks_until_race=saved["weeks_until_race"],
-        phases=[Phase(**p) for p in saved["phases"]],
+        phases=[Phase(**p) for p in (saved.get("phases") or [])],
         sessions=[Session(**s) for s in saved["sessions"]],
     )
 
@@ -96,7 +96,7 @@ async def get_current_plan(user_id: str = Query(...)):
         user_id=saved["user_id"],
         generated_at=saved["generated_at"],
         weeks_until_race=saved["weeks_until_race"],
-        phases=[Phase(**p) for p in saved.get("phases", [])],
+        phases=[Phase(**p) for p in (saved.get("phases") or [])],
         sessions=[Session(**s) for s in saved["sessions"]],
     )
 
