@@ -1,13 +1,15 @@
 import Constants from "expo-constants";
-import { Platform } from "react-native";
 
 function getApiUrl(): string {
+  // Explicit override in .env takes priority (works on physical devices)
+  const envUrl = process.env.EXPO_PUBLIC_API_URL;
+  if (envUrl) return envUrl;
+
   if (!__DEV__) {
     return "http://localhost:8000";
   }
 
-  // On simulator, localhost works. On physical device, we need the LAN IP.
-  // Expo's hostUri gives us the dev server's LAN IP (e.g. "192.168.1.5:8081")
+  // In dev, derive LAN IP from Expo's hostUri so simulator also works
   const hostUri = Constants.expoConfig?.hostUri;
   if (hostUri) {
     const lanIp = hostUri.split(":")[0];

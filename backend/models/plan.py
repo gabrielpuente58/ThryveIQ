@@ -34,3 +34,4 @@ class PlanResponse(BaseModel):
 
 class GeneratePlanRequest(BaseModel):
     user_id: str
+    max_weeks: int = 1

@@ -27,8 +27,9 @@ async def generate(request: GeneratePlanRequest):
     # Calculate phases
     phases = calculate_phases(profile["race_date"])
 
-    # Generate first phase sessions via LLM
-    first_phase = phases[0]
+    # Generate first phase sessions via LLM, capped at max_weeks
+    first_phase = dict(phases[0])
+    first_phase["end_week"] = min(first_phase["end_week"], first_phase["start_week"] + request.max_weeks - 1)
     all_sessions = await generate_phase_sessions(profile, first_phase, phases)
 
     # If LLM failed, fall back to rule engine for the whole plan
