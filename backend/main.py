@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from routers.profiles import router as profiles_router
 from routers.plans import router as plans_router
 from routers.chat import router as chat_router
+from routers.strava import router as strava_router
 
 app = FastAPI(title="ThryveIQ API")
 
@@ -16,6 +17,7 @@ app.add_middleware(
 app.include_router(profiles_router)
 app.include_router(plans_router)
 app.include_router(chat_router)
+app.include_router(strava_router)
 
 
 @app.get("/health")
