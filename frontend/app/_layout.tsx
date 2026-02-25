@@ -30,19 +30,24 @@ function RouteGuard() {
     // Logged in — check profile via Supabase directly (works even when backend is down)
     const checkProfile = async () => {
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from("athlete_profiles")
           .select("user_id")
           .eq("user_id", session.user.id)
           .limit(1);
+
+        if (error) {
+          // RLS or network issue — can't determine profile status, go to tabs
+          if (!inTabs) router.replace("/(tabs)/plan");
+          return;
+        }
 
         if (data && data.length > 0) {
           if (!inTabs) router.replace("/(tabs)/plan");
         } else {
           router.replace("/onboarding/goal");
         }
-      } catch {
-        // Can't determine profile state — default to tabs if session exists
+      } catch (e) {
         if (!inTabs) router.replace("/(tabs)/plan");
       }
     };
