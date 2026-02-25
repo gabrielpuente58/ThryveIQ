@@ -35,22 +35,46 @@ export default function PlanScreen() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchPlan = async () => {
     if (!user) return;
-    const fetchPlan = async () => {
-      try {
-        const res = await fetch(`${API_URL}/plans/current?user_id=${user.id}`);
-        if (!res.ok) throw new Error("No plan found");
-        const data: Plan = await res.json();
-        setPlan(data);
-      } catch {
-        setError("Could not load your plan. Generate one first.");
-      } finally {
-        setLoading(false);
-      }
-    };
+    try {
+      const res = await fetch(`${API_URL}/plans/current?user_id=${user.id}`);
+      if (!res.ok) throw new Error("No plan found");
+      const data: Plan = await res.json();
+      setPlan(data);
+      setError(null);
+    } catch {
+      setError("Could not load your plan. Generate one first.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const regeneratePlan = async () => {
+    if (!user) return;
+    setRegenerating(true);
+    try {
+      const res = await fetch(`${API_URL}/plans/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: user.id }),
+      });
+      if (!res.ok) throw new Error("Failed to generate plan");
+      const data: Plan = await res.json();
+      setPlan(data);
+      setSelectedWeek(1);
+      setError(null);
+    } catch {
+      setError("Failed to regenerate plan. Please try again.");
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  useEffect(() => {
     fetchPlan();
   }, [user]);
 
@@ -75,7 +99,20 @@ export default function PlanScreen() {
 
   return (
     <Screen>
-      <Text style={styles.title}>Your Training Plan</Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>Your Training Plan</Text>
+        <TouchableOpacity
+          style={[styles.regenButton, regenerating && styles.regenButtonDisabled]}
+          onPress={regeneratePlan}
+          disabled={regenerating}
+        >
+          {regenerating ? (
+            <ActivityIndicator size="small" color={COLORS.background} />
+          ) : (
+            <Text style={styles.regenButtonText}>Regenerate</Text>
+          )}
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.pillsContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -122,11 +159,32 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: SPACING.md,
+  },
   title: {
     fontSize: FONT_SIZES.xxl,
     fontWeight: "bold",
     color: COLORS.white,
-    marginBottom: SPACING.md,
+  },
+  regenButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    minWidth: 100,
+    alignItems: "center",
+  },
+  regenButtonDisabled: {
+    opacity: 0.5,
+  },
+  regenButtonText: {
+    color: COLORS.background,
+    fontWeight: "600",
+    fontSize: FONT_SIZES.sm,
   },
   errorText: {
     fontSize: FONT_SIZES.md,
