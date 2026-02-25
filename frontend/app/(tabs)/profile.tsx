@@ -11,7 +11,7 @@ import { API_URL } from "../../constants/api";
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from "../../constants/theme";
 
 const STRAVA_CLIENT_ID = process.env.EXPO_PUBLIC_STRAVA_CLIENT_ID;
-const STRAVA_REDIRECT_URI = "thryveiq://strava-callback";
+const STRAVA_REDIRECT_URI = "thryveiq://localhost/strava-callback";
 const STRAVA_SCOPE = "activity:read_all";
 
 interface Profile {
