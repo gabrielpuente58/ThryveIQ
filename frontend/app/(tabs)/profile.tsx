@@ -63,10 +63,15 @@ export default function ProfileScreen() {
   const [stravaLoading, setStravaLoading] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
     fetch(`${API_URL}/profiles/${user.id}`)
       .then((res) => res.json())
       .then((data) => setProfile(data))
+      .catch(() => {})
       .finally(() => setLoading(false));
 
     fetch(`${API_URL}/strava/status?user_id=${user.id}`)

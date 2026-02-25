@@ -75,6 +75,10 @@ export default function PlanScreen() {
   };
 
   useEffect(() => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     fetchPlan();
   }, [user]);
 
