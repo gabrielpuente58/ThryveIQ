@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, ScrollView, Alert } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { Screen } from "../../components/Screen";
@@ -189,7 +189,7 @@ export default function ProfileScreen() {
           <View style={styles.connectionRow}>
             <View style={styles.connectionInfo}>
               <View style={[styles.connectionIcon, { backgroundColor: "#FC4C02" }]}>
-                <Ionicons name="bicycle" size={18} color={COLORS.white} />
+                <FontAwesome5 name="strava" size={18} color={COLORS.white} />
               </View>
               <View>
                 <Text style={styles.connectionName}>Strava</Text>
