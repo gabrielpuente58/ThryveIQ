@@ -107,6 +107,18 @@ export default function PlanScreen() {
     {}
   );
 
+  const totalMinutes = weekSessions.reduce((sum, s) => sum + s.duration_minutes, 0);
+  const totalHours = (totalMinutes / 60).toFixed(1);
+  const disciplineMinutes: Record<string, number> = { swim: 0, bike: 0, run: 0 };
+  weekSessions.forEach((s) => {
+    if (s.sport in disciplineMinutes) disciplineMinutes[s.sport] += s.duration_minutes;
+  });
+  const disciplines = [
+    { key: "swim", label: "Swim", color: "#3B82F6" },
+    { key: "bike", label: "Bike", color: "#22C55E" },
+    { key: "run", label: "Run", color: "#F97316" },
+  ];
+
   return (
     <Screen>
       <View style={styles.header}>
@@ -145,6 +157,25 @@ export default function PlanScreen() {
             ))}
           </View>
         </ScrollView>
+      </View>
+
+      <View style={styles.summaryCard}>
+        <View style={styles.summaryTotal}>
+          <Text style={styles.summaryTotalValue}>{totalHours}h</Text>
+          <Text style={styles.summaryTotalLabel}>this week</Text>
+        </View>
+        <View style={styles.summaryDivider} />
+        <View style={styles.summaryDisciplines}>
+          {disciplines.map(({ key, label, color }) => (
+            <View key={key} style={styles.disciplineItem}>
+              <View style={[styles.disciplineDot, { backgroundColor: color }]} />
+              <Text style={styles.disciplineLabel}>{label}</Text>
+              <Text style={styles.disciplineValue}>
+                {(disciplineMinutes[key] / 60).toFixed(1)}h
+              </Text>
+            </View>
+          ))}
+        </View>
       </View>
 
       <ScrollView style={styles.sessionList} showsVerticalScrollIndicator={false}>
@@ -219,5 +250,57 @@ const styles = StyleSheet.create({
   },
   sessionList: {
     flex: 1,
+  },
+  summaryCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.mediumGray,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  summaryTotal: {
+    alignItems: "center",
+    minWidth: 56,
+  },
+  summaryTotalValue: {
+    fontSize: FONT_SIZES.xl,
+    fontWeight: "700",
+    color: COLORS.primary,
+  },
+  summaryTotalLabel: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.lightGray,
+    marginTop: 2,
+  },
+  summaryDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    backgroundColor: COLORS.darkGray,
+    marginHorizontal: SPACING.md,
+  },
+  summaryDisciplines: {
+    flex: 1,
+    gap: SPACING.xs,
+  },
+  disciplineItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+  },
+  disciplineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  disciplineLabel: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.lightGray,
+    flex: 1,
+  },
+  disciplineValue: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: "600",
+    color: COLORS.white,
   },
 });
