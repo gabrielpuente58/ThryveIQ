@@ -6,6 +6,7 @@ import { Button } from "../../components/Button";
 import { ProgressBar } from "../../components/ProgressBar";
 import { OptionCard } from "../../components/OptionCard";
 import { useOnboarding } from "../../context/OnboardingContext";
+import { useAuth } from "../../context/AuthContext";
 import { COLORS, SPACING, FONT_SIZES } from "../../constants/theme";
 import { API_URL } from "../../constants/api";
 
@@ -18,15 +19,14 @@ const OPTIONS = [
 export default function WeakestScreen() {
   const router = useRouter();
   const { data, update } = useOnboarding();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
+    if (!user) return;
     setLoading(true);
     try {
-      const payload = {
-        ...data,
-        user_id: "00000000-0000-0000-0000-000000000001",
-      };
+      const payload = { ...data, user_id: user.id };
 
       const res = await fetch(`${API_URL}/profiles`, {
         method: "POST",
@@ -39,18 +39,17 @@ export default function WeakestScreen() {
         throw new Error(err);
       }
 
-      // Generate training plan
       const planRes = await fetch(`${API_URL}/plans/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: "00000000-0000-0000-0000-000000000001" }),
+        body: JSON.stringify({ user_id: user.id }),
       });
 
       if (!planRes.ok) {
         throw new Error("Failed to generate plan");
       }
 
-      router.replace("/plan");
+      router.replace("/(tabs)/plan");
     } catch (err) {
       Alert.alert("Error", "Failed to save profile. Please try again.");
       console.error(err);
