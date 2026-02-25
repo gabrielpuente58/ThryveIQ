@@ -1,9 +1,11 @@
 from fastapi import APIRouter, HTTPException, Query
 from models.plan import GeneratePlanRequest, PlanResponse, Session, Phase
+from models.blueprint import ArchitectRequest, PlanBlueprint
 from db.supabase import supabase
 from services.phases import calculate_phases
 from services.llm import generate_phase_sessions, generate_phase_previews
 from services.plan_engine import generate_plan as generate_plan_fallback
+from services.agents.plan_architect import run_plan_architect
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -100,6 +102,39 @@ async def get_current_plan(user_id: str = Query(...)):
         phases=[Phase(**p) for p in (saved.get("phases") or [])],
         sessions=[Session(**s) for s in saved["sessions"]],
     )
+
+
+@router.post("/architect", response_model=PlanBlueprint)
+async def architect_plan(request: ArchitectRequest):
+    """
+    Run the Plan Architect Agent for the authenticated user.
+
+    Reads the athlete's profile from Supabase, runs the LangChain Plan Architect
+    Agent, and returns a validated PlanBlueprint with phase names, week counts,
+    session type mix, and intensity distribution targets.
+
+    The agent does NOT generate individual workout sessions.
+    """
+    profile_result = (
+        supabase.table("athlete_profiles")
+        .select("*")
+        .eq("user_id", request.user_id)
+        .single()
+        .execute()
+    )
+
+    if not profile_result.data:
+        raise HTTPException(
+            status_code=404,
+            detail="Athlete profile not found. Complete onboarding first.",
+        )
+
+    try:
+        blueprint = await run_plan_architect(profile_result.data)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return blueprint
 
 
 @router.get("/week/{week_number}", response_model=list[Session])
