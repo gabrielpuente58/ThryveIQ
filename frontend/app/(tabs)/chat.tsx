@@ -125,6 +125,7 @@ export default function ChatScreen() {
         style={styles.messageList}
         contentContainerStyle={styles.messageListContent}
         onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
+        keyboardDismissMode="on-drag"
       />
 
       <KeyboardAvoidingView
