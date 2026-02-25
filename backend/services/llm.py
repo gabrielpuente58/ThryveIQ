@@ -105,18 +105,23 @@ async def generate_phase_sessions(profile: dict, phase: dict, all_phases: list[d
         week_minutes = int(weekly_minutes * 0.6) if is_recovery else weekly_minutes
         week_type = "RECOVERY week (reduce volume ~40%, zones 1-2 only)" if is_recovery else f"normal {phase['name']} training week"
 
-        prompt = f"""Generate exactly {days} training sessions for week {week_num}.
+        max_sessions = days + days // 2  # up to 1.5x days for 2-a-days
+
+        prompt = f"""Generate {days} to {max_sessions} training sessions for week {week_num}.
 
 Athlete: {profile['experience']} triathlete, goal: {profile['goal']}
 Weakest: {profile['weakest_discipline']} (prioritize), Strongest: {profile['strongest_discipline']}
 Phase: {phase['name']} — {phase['focus']}
 This is a {week_type}.
 
-Generate exactly {days} sessions, one per day:
-{chr(10).join(f'- {day}: one session' for day in training_days)}
-
-Total weekly volume: ~{week_minutes} minutes.
-All sessions must have week: {week_num}.
+Available training days: {', '.join(training_days)}
+Rules:
+- Each day can have 1 or 2 sessions (max 2 per day)
+- Use 2 sessions on a day for: brick workouts (bike + run same day) or 2-a-days (e.g. morning swim + evening run)
+- Not every day needs 2 sessions — use judgment based on phase and athlete level
+- Assign each session a "day" value from the available training days above
+- Total weekly volume: ~{week_minutes} minutes spread across all sessions
+- All sessions must have week: {week_num}
 
 Return JSON: {{"sessions": [{{"id": "w{week_num}_d1_swim", "week": {week_num}, "day": "{training_days[0]}", "sport": "swim", "duration_minutes": 60, "zone": 2, "zone_label": "Aerobic", "description": "..."}}]}}"""
 
@@ -128,17 +133,26 @@ Return JSON: {{"sessions": [{{"id": "w{week_num}_d1_swim", "week": {week_num}, "
             parsed = _extract_json(response)
 
             if parsed and "sessions" in parsed:
-                # Force correct week number on all sessions
                 week_phase = {"start_week": week_num, "end_week": week_num,
                               "name": phase["name"], "weeks": 1, "focus": phase["focus"]}
                 week_sessions = _validate_sessions(parsed["sessions"], week_phase)
 
-                # Ensure correct day assignment
-                for i, s in enumerate(week_sessions[:days]):
-                    s["day"] = training_days[i]
-                    s["id"] = f"w{week_num}_d{i + 1}_{s['sport']}"
+                # Enforce max 2 sessions per day and assign stable IDs
+                day_counts: dict[str, int] = {}
+                assigned = []
+                for s in week_sessions:
+                    day = s["day"] if s["day"] in training_days else training_days[0]
+                    s["day"] = day
+                    count = day_counts.get(day, 0) + 1
+                    if count > 2:
+                        continue  # skip 3rd+ session on same day
+                    day_counts[day] = count
+                    day_index = training_days.index(day) + 1
+                    suffix = "_2" if count == 2 else ""
+                    s["id"] = f"w{week_num}_d{day_index}_{s['sport']}{suffix}"
+                    assigned.append(s)
 
-                all_sessions.extend(week_sessions[:days])
+                all_sessions.extend(assigned)
             else:
                 print(f"LLM returned no sessions for week {week_num}")
 
