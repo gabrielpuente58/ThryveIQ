@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, View } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { API_URL } from "../constants/api";
 import { COLORS } from "../constants/theme";
@@ -53,15 +54,17 @@ function RouteGuard() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <RouteGuard />
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: "#131321" },
-        }}
-      />
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <RouteGuard />
+        <StatusBar style="light" />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: "#131321" },
+          }}
+        />
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
