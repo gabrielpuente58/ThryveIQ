@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, ScrollView } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "../../components/Screen";
 import { Card } from "../../components/Card";
 import { useAuth } from "../../context/AuthContext";
@@ -107,8 +108,8 @@ export default function ProfileScreen() {
           <Card style={styles.section}>
             <Text style={styles.sectionTitle}>Disciplines</Text>
             <View style={styles.row}>
-              <DisciplineItem label="Strongest" sport={profile.strongest_discipline} tag="💪" />
-              <DisciplineItem label="Focus" sport={profile.weakest_discipline} tag="🎯" />
+              <DisciplineItem label="Strongest" sport={profile.strongest_discipline} icon="trophy-outline" />
+              <DisciplineItem label="Focus" sport={profile.weakest_discipline} icon="flag-outline" />
             </View>
           </Card>
         )}
@@ -136,13 +137,14 @@ function InfoItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DisciplineItem({ label, sport, tag }: { label: string; sport: string; tag: string }) {
+function DisciplineItem({ label, sport, icon }: { label: string; sport: string; icon: string }) {
   return (
     <View style={styles.infoItem}>
       <Text style={styles.infoLabel}>{label}</Text>
       <View style={styles.disciplineRow}>
         <View style={[styles.disciplineDot, { backgroundColor: SPORT_COLORS[sport] }]} />
-        <Text style={styles.infoValue}>{tag} {LABELS[sport] ?? sport}</Text>
+        <Ionicons name={icon as never} size={14} color={COLORS.lightGray} />
+        <Text style={styles.infoValue}>{LABELS[sport] ?? sport}</Text>
       </View>
     </View>
   );
