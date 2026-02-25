@@ -44,7 +44,7 @@ OUTPUT FORMAT — return exactly this JSON structure (no extra fields, no markdo
       "phase_name": "Base",
       "weeks": 4,
       "intensity_distribution_target": "80/20",
-      "weekly_structure_template": {"swim": 2, "bike": 3, "run": 3},
+      "weekly_structure_template": {"swim": 4, "bike": 3, "run": 3},
       "focus": "1-2 sentence description of phase goal"
     }
   ],
@@ -66,8 +66,17 @@ PHASE DESIGN RULES:
 - For 10+ weeks: Base + Build + Peak + Taper (4 phases)
 - total_weeks = sum of all phase.weeks values (e.g. 4 + 3 + 2 + 1 = 10)
 - weekly_structure_template: keys must be swim, bike, run only
-- Training sport split: ~20% swim, ~50% bike, ~30% run
-- Weakest discipline gets ~20% more sessions
+
+SESSION COUNT RULES:
+- Distribute sessions EVENLY across all three sports throughout the week
+- A typical week looks like: {"swim": 3, "bike": 3, "run": 3} or {"swim": 4, "bike": 4, "run": 4}
+- The 20% swim / 50% bike / 30% run split refers to TRAINING TIME (duration), NOT session count
+  - Bike sessions are longer (60-120 min) so they accumulate more time with fewer or equal sessions
+  - Swim sessions are shorter (30-60 min) so equal session counts still produce the correct time split
+- Weakest discipline gets 1 extra session per week compared to the others
+  - e.g. if weakest is swim and base is 3 sessions each: {"swim": 4, "bike": 3, "run": 3}
+- Minimum 2 sessions per sport per week
+
 - intensity_distribution_target: '80/20' Base, '75/25' Build, '70/30' Peak, '90/10' Taper
 - You MAY call compute_zones to understand zone ranges before deciding targets
 """
