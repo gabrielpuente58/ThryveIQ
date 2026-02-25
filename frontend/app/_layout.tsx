@@ -4,7 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "../context/AuthContext";
-import { API_URL } from "../constants/api";
+import { supabase } from "../lib/supabase";
 import { COLORS } from "../constants/theme";
 
 function RouteGuard() {
@@ -27,17 +27,23 @@ function RouteGuard() {
     // Allow manual navigation to onboarding (e.g. test button from profile)
     if (inOnboarding) return;
 
-    // Logged in — check if they have a profile
+    // Logged in — check profile via Supabase directly (works even when backend is down)
     const checkProfile = async () => {
       try {
-        const res = await fetch(`${API_URL}/profiles/${session.user.id}`);
-        if (res.ok) {
+        const { data } = await supabase
+          .from("athlete_profiles")
+          .select("user_id")
+          .eq("user_id", session.user.id)
+          .limit(1);
+
+        if (data && data.length > 0) {
           if (!inTabs) router.replace("/(tabs)/plan");
         } else {
           router.replace("/onboarding/goal");
         }
       } catch {
-        router.replace("/onboarding/goal");
+        // Can't determine profile state — default to tabs if session exists
+        if (!inTabs) router.replace("/(tabs)/plan");
       }
     };
 
