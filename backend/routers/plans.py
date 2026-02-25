@@ -129,8 +129,10 @@ async def architect_plan(request: ArchitectRequest):
             detail="Athlete profile not found. Complete onboarding first.",
         )
 
+    profile = {**profile_result.data, **request.overrides}
+
     try:
-        blueprint = await run_plan_architect(profile_result.data)
+        blueprint = await run_plan_architect(profile)
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

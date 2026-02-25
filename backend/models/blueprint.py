@@ -100,3 +100,11 @@ class ArchitectRequest(BaseModel):
     """Request body for POST /plans/architect."""
 
     user_id: str = Field(description="Supabase user UUID.")
+    overrides: dict = Field(
+        default_factory=dict,
+        description=(
+            "Optional profile field overrides for testing. Any key here will replace "
+            "the value fetched from Supabase before the agent runs. "
+            "e.g. {\"race_date\": \"2026-04-01\", \"weekly_hours\": 12}"
+        ),
+    )
