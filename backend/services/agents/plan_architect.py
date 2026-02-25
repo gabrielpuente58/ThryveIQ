@@ -37,20 +37,39 @@ _SYSTEM = """You are an expert Ironman 70.3 triathlon coach and periodization sp
 Your ONLY job is to design a high-level training phase blueprint for an athlete.
 Do NOT generate individual workout sessions — those come later.
 
-Rules for phase design:
-- Use phase names from: Base, Build, Peak, Taper
-- Standard distribution for 10+ weeks: Base (40%), Build (35%), Peak (15%), Taper (10%)
-- For < 6 weeks: Base + Taper only
-- For 6-9 weeks: Base + Build + Taper
-- For 10+ weeks: Base + Build + Peak + Taper
-- total_weeks MUST equal the exact sum of all phase.weeks values
-- weekly_structure_template keys must be swim / bike / run (no other sports for MVP)
-- Training sport split: ~20% swim, ~50% bike, ~30% run (by session count)
-- Weakest discipline gets ~20% more sessions than the template average
-- intensity_distribution_target: use '80/20' for Base, '75/25' for Build,
-  '70/30' for Peak, '90/10' for Taper (easy/hard split)
-- You MAY call compute_zones if you want concrete zone ranges to inform targets
-- Return a complete, valid blueprint with all required fields
+OUTPUT FORMAT — return exactly this JSON structure (no extra fields, no markdown):
+{
+  "phases": [
+    {
+      "phase_name": "Base",
+      "weeks": 4,
+      "intensity_distribution_target": "80/20",
+      "weekly_structure_template": {"swim": 2, "bike": 3, "run": 3},
+      "focus": "1-2 sentence description of phase goal"
+    }
+  ],
+  "total_weeks": 10,
+  "notes": "Brief rationale for the phase structure"
+}
+
+FIELD NAMES — use exactly these names:
+- phase_name (not "name", not "phase", not "title")
+- focus (not "coaching_notes", not "description", not "objective")
+- notes (not "coaching_notes", not "plan_notes")
+- weekly_structure_template (not "session_mix", not "sessions")
+
+PHASE DESIGN RULES:
+- Use 3-4 phases maximum with UNIQUE names from: Base, Build, Peak, Taper
+- Do NOT repeat the same phase name
+- For < 6 weeks: Base + Taper only (2 phases)
+- For 6-9 weeks: Base + Build + Taper (3 phases)
+- For 10+ weeks: Base + Build + Peak + Taper (4 phases)
+- total_weeks = sum of all phase.weeks values (e.g. 4 + 3 + 2 + 1 = 10)
+- weekly_structure_template: keys must be swim, bike, run only
+- Training sport split: ~20% swim, ~50% bike, ~30% run
+- Weakest discipline gets ~20% more sessions
+- intensity_distribution_target: '80/20' Base, '75/25' Build, '70/30' Peak, '90/10' Taper
+- You MAY call compute_zones to understand zone ranges before deciding targets
 """
 
 _HUMAN_TEMPLATE = """Design a training phase blueprint for this athlete:
@@ -76,12 +95,64 @@ def _weeks_until_race(race_date_str: str) -> int:
     return max(1, delta // 7)
 
 
+def _normalize_phase(phase: dict) -> dict:
+    """
+    Normalize a phase dict to match PhaseBlueprint field names.
+
+    Ollama models sometimes use abbreviated field names like 'name' instead of
+    'phase_name', or 'coaching_notes' instead of 'focus'. This function maps
+    all known variants to the canonical field names.
+    """
+    out = dict(phase)
+
+    # phase_name aliases
+    if "phase_name" not in out:
+        for alt in ("name", "phase", "phase_label", "title"):
+            if alt in out:
+                out["phase_name"] = out.pop(alt)
+                break
+
+    # focus aliases
+    if "focus" not in out:
+        for alt in ("coaching_notes", "description", "summary", "objective", "notes"):
+            if alt in out:
+                out["focus"] = out.pop(alt)
+                break
+
+    # intensity_distribution_target aliases
+    if "intensity_distribution_target" not in out:
+        for alt in ("intensity_target", "intensity", "distribution", "zone_distribution"):
+            if alt in out:
+                out["intensity_distribution_target"] = out.pop(alt)
+                break
+        else:
+            out.setdefault("intensity_distribution_target", "80/20")
+
+    # weekly_structure_template aliases
+    if "weekly_structure_template" not in out:
+        for alt in ("session_template", "session_mix", "sessions_per_week", "structure"):
+            if alt in out:
+                out["weekly_structure_template"] = out.pop(alt)
+                break
+
+    # Ensure weekly_structure_template only has valid sport keys
+    template = out.get("weekly_structure_template", {})
+    if isinstance(template, dict):
+        valid = {k: v for k, v in template.items() if k in ("swim", "bike", "run")}
+        if valid:
+            out["weekly_structure_template"] = valid
+        else:
+            out["weekly_structure_template"] = {"swim": 2, "bike": 3, "run": 3}
+
+    return out
+
+
 def _parse_blueprint(raw: str | dict) -> PlanBlueprint:
     """
     Parse the agent's output into a validated PlanBlueprint.
 
     The agent may return a dict (structured output) or a JSON string.
-    Auto-corrects total_weeks if the model computed it incorrectly.
+    Handles common LLM field name variations and auto-corrects total_weeks.
     """
     if isinstance(raw, dict):
         data = raw
@@ -92,8 +163,31 @@ def _parse_blueprint(raw: str | dict) -> PlanBlueprint:
     if "phases" not in data and "properties" in data:
         data = data["properties"]
 
-    # Auto-correct total_weeks to match actual phase sum
+    # Normalize top-level 'notes' field
+    if "notes" not in data:
+        for alt in ("coaching_notes", "plan_notes", "rationale", "summary"):
+            if alt in data:
+                data["notes"] = data.pop(alt)
+                break
+        else:
+            data["notes"] = "Training blueprint generated by Plan Architect."
+
+    # Normalize each phase's field names
     if "phases" in data:
+        data["phases"] = [_normalize_phase(p) for p in data["phases"]]
+
+        # Deduplicate phases — model sometimes repeats the same phase block.
+        # Keep first occurrence of each unique phase_name.
+        seen_names: set[str] = set()
+        deduped = []
+        for p in data["phases"]:
+            name = p.get("phase_name", "")
+            if name not in seen_names:
+                seen_names.add(name)
+                deduped.append(p)
+        data["phases"] = deduped
+
+        # Auto-correct total_weeks to match actual (deduplicated) phase sum
         computed_sum = sum(p.get("weeks", 0) for p in data["phases"])
         data["total_weeks"] = computed_sum
 

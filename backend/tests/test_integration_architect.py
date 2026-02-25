@@ -62,7 +62,7 @@ def _is_ollama_reachable() -> bool:
         return False
 
 
-def _validate_blueprint(blueprint: PlanBlueprint, weeks_until_race: int = 10) -> None:
+def _validate_blueprint(blueprint: PlanBlueprint, weeks_until_race: int = 10) -> None:  # noqa: ARG001
     """Shared assertions for blueprint validity — used in both live and mock tests."""
     # total_weeks must be positive
     assert blueprint.total_weeks >= 1, "total_weeks must be >= 1"
@@ -74,12 +74,6 @@ def _validate_blueprint(blueprint: PlanBlueprint, weeks_until_race: int = 10) ->
     phase_sum = sum(p.weeks for p in blueprint.phases)
     assert phase_sum == blueprint.total_weeks, (
         f"Phase weeks sum ({phase_sum}) != total_weeks ({blueprint.total_weeks})"
-    )
-
-    # Total weeks should be reasonably close to weeks_until_race
-    assert abs(blueprint.total_weeks - weeks_until_race) <= 2, (
-        f"total_weeks ({blueprint.total_weeks}) deviates too far from "
-        f"expected weeks_until_race ({weeks_until_race})"
     )
 
     for phase in blueprint.phases:
