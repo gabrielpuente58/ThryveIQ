@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, ScrollView, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import { Screen } from "../../components/Screen";
 import { Card } from "../../components/Card";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { API_URL } from "../../constants/api";
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from "../../constants/theme";
+
+const STRAVA_CLIENT_ID = process.env.EXPO_PUBLIC_STRAVA_CLIENT_ID;
+const STRAVA_REDIRECT_URI = "thryveiq://strava-callback";
+const STRAVA_SCOPE = "activity:read_all";
 
 interface Profile {
   goal: string;
@@ -54,6 +59,8 @@ export default function ProfileScreen() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [stravaAthlete, setStravaAthlete] = useState<{ name: string; id: number } | null>(null);
+  const [stravaLoading, setStravaLoading] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -61,7 +68,67 @@ export default function ProfileScreen() {
       .then((res) => res.json())
       .then((data) => setProfile(data))
       .finally(() => setLoading(false));
+
+    fetch(`${API_URL}/strava/status?user_id=${user.id}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.connected && data.athlete_name) {
+          setStravaAthlete({ name: data.athlete_name, id: data.athlete_id });
+        }
+      })
+      .catch(() => {});
   }, [user]);
+
+  const handleConnectStrava = async () => {
+    if (!user) return;
+    setStravaLoading(true);
+    try {
+      const authUrl =
+        `https://www.strava.com/oauth/authorize` +
+        `?client_id=${STRAVA_CLIENT_ID}` +
+        `&redirect_uri=${encodeURIComponent(STRAVA_REDIRECT_URI)}` +
+        `&response_type=code` +
+        `&scope=${STRAVA_SCOPE}` +
+        `&approval_prompt=auto`;
+
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, STRAVA_REDIRECT_URI);
+
+      if (result.type !== "success") return;
+
+      const url = new URL(result.url);
+      const code = url.searchParams.get("code");
+      if (!code) throw new Error("No code returned from Strava");
+
+      const res = await fetch(`${API_URL}/strava/exchange`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: user.id, code }),
+      });
+      if (!res.ok) throw new Error("Exchange failed");
+
+      const data = await res.json();
+      setStravaAthlete({ name: data.athlete_name, id: data.athlete_id });
+    } catch {
+      Alert.alert("Error", "Could not connect Strava. Please try again.");
+    } finally {
+      setStravaLoading(false);
+    }
+  };
+
+  const handleDisconnectStrava = async () => {
+    if (!user) return;
+    Alert.alert("Disconnect Strava", "Are you sure?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Disconnect",
+        style: "destructive",
+        onPress: async () => {
+          await fetch(`${API_URL}/strava/disconnect?user_id=${user.id}`, { method: "DELETE" });
+          setStravaAthlete(null);
+        },
+      },
+    ]);
+  };
 
   const handleSignOut = () => supabase.auth.signOut();
 
@@ -115,6 +182,43 @@ export default function ProfileScreen() {
             </View>
           </Card>
         )}
+
+        {/* Connections */}
+        <Card style={styles.section}>
+          <Text style={styles.sectionTitle}>Connections</Text>
+          <View style={styles.connectionRow}>
+            <View style={styles.connectionInfo}>
+              <View style={[styles.connectionIcon, { backgroundColor: "#FC4C02" }]}>
+                <Ionicons name="bicycle" size={18} color={COLORS.white} />
+              </View>
+              <View>
+                <Text style={styles.connectionName}>Strava</Text>
+                {stravaAthlete ? (
+                  <Text style={styles.connectionSubtitle}>{stravaAthlete.name}</Text>
+                ) : (
+                  <Text style={styles.connectionSubtitle}>Not connected</Text>
+                )}
+              </View>
+            </View>
+            {stravaAthlete ? (
+              <TouchableOpacity onPress={handleDisconnectStrava}>
+                <Text style={styles.disconnectText}>Disconnect</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.connectButton}
+                onPress={handleConnectStrava}
+                disabled={stravaLoading}
+              >
+                {stravaLoading ? (
+                  <ActivityIndicator size="small" color={COLORS.white} />
+                ) : (
+                  <Text style={styles.connectButtonText}>Connect</Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+        </Card>
 
         {/* Account */}
         <Card style={styles.section}>
@@ -237,6 +341,50 @@ const styles = StyleSheet.create({
   },
   email: {
     fontSize: FONT_SIZES.md,
+    color: COLORS.lightGray,
+  },
+  connectionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  connectionInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.md,
+  },
+  connectionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: BORDER_RADIUS.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  connectionName: {
+    fontSize: FONT_SIZES.md,
+    fontWeight: "600",
+    color: COLORS.white,
+  },
+  connectionSubtitle: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.lightGray,
+    marginTop: 2,
+  },
+  connectButton: {
+    backgroundColor: "#FC4C02",
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    minWidth: 80,
+    alignItems: "center",
+  },
+  connectButtonText: {
+    color: COLORS.white,
+    fontWeight: "600",
+    fontSize: FONT_SIZES.sm,
+  },
+  disconnectText: {
+    fontSize: FONT_SIZES.sm,
     color: COLORS.lightGray,
   },
   devButton: {
