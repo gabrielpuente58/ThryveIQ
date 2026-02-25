@@ -18,10 +18,10 @@ def get_tokens(user_id: str) -> dict | None:
         supabase.table("strava_tokens")
         .select("*")
         .eq("user_id", user_id)
-        .single()
+        .limit(1)
         .execute()
     )
-    return result.data or None
+    return result.data[0] if result.data else None
 
 
 def delete_tokens(user_id: str) -> None:
