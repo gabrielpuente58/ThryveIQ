@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { Screen } from "../../components/Screen";
 import { Card } from "../../components/Card";
 import { useAuth } from "../../context/AuthContext";
@@ -50,6 +51,7 @@ function formatDate(dateStr: string): string {
 
 export default function ProfileScreen() {
   const { user } = useAuth();
+  const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -119,6 +121,15 @@ export default function ProfileScreen() {
           <Text style={styles.sectionTitle}>Account</Text>
           <Text style={styles.email}>{user?.email}</Text>
         </Card>
+
+        {/* Dev only — test onboarding without a new account */}
+        <TouchableOpacity
+          style={styles.devButton}
+          onPress={() => router.push("/onboarding/goal")}
+        >
+          <Ionicons name="construct-outline" size={16} color={COLORS.lightGray} />
+          <Text style={styles.devButtonText}>Test Onboarding</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Sign Out</Text>
@@ -226,6 +237,21 @@ const styles = StyleSheet.create({
   },
   email: {
     fontSize: FONT_SIZES.md,
+    color: COLORS.lightGray,
+  },
+  devButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.mediumGray,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  devButtonText: {
+    fontSize: FONT_SIZES.sm,
     color: COLORS.lightGray,
   },
   signOutButton: {

@@ -24,6 +24,9 @@ function RouteGuard() {
       return;
     }
 
+    // Allow manual navigation to onboarding (e.g. test button from profile)
+    if (inOnboarding) return;
+
     // Logged in — check if they have a profile
     const checkProfile = async () => {
       try {
@@ -31,10 +34,10 @@ function RouteGuard() {
         if (res.ok) {
           if (!inTabs) router.replace("/(tabs)/plan");
         } else {
-          if (!inOnboarding) router.replace("/onboarding/goal");
+          router.replace("/onboarding/goal");
         }
       } catch {
-        if (!inOnboarding) router.replace("/onboarding/goal");
+        router.replace("/onboarding/goal");
       }
     };
 
