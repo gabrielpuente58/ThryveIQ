@@ -1,4 +1,5 @@
-import { useRouter } from "expo-router";
+import { useEffect } from "react";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { View, Text, StyleSheet } from "react-native";
 import { Screen } from "../../components/Screen";
 import { Button } from "../../components/Button";
@@ -15,7 +16,12 @@ const OPTIONS = [
 
 export default function GoalScreen() {
   const router = useRouter();
-  const { data, update } = useOnboarding();
+  const { test } = useLocalSearchParams<{ test?: string }>();
+  const { data, update, setTestMode } = useOnboarding();
+
+  useEffect(() => {
+    if (test === "true") setTestMode(true);
+  }, []);
 
   return (
     <Screen style={styles.container}>

@@ -125,7 +125,7 @@ export default function ProfileScreen() {
         {/* Dev only — test onboarding without a new account */}
         <TouchableOpacity
           style={styles.devButton}
-          onPress={() => router.push("/onboarding/goal")}
+          onPress={() => router.push("/onboarding/goal?test=true")}
         >
           <Ionicons name="construct-outline" size={16} color={COLORS.lightGray} />
           <Text style={styles.devButtonText}>Test Onboarding</Text>

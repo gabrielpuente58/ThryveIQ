@@ -18,11 +18,15 @@ const OPTIONS = [
 
 export default function WeakestScreen() {
   const router = useRouter();
-  const { data, update } = useOnboarding();
+  const { data, update, testMode } = useOnboarding();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
+    if (testMode) {
+      router.replace("/(tabs)/plan");
+      return;
+    }
     if (!user) return;
     setLoading(true);
     try {
