@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Screen } from "../../components/Screen";
-import { SessionCard } from "../../components/SessionCard";
+import { DayCard } from "../../components/DayCard";
 import { API_URL } from "../../constants/api";
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from "../../constants/theme";
 import { useAuth } from "../../context/AuthContext";
@@ -94,8 +94,18 @@ export default function PlanScreen() {
     );
   }
 
+  const DAYS_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const weeks = Array.from({ length: plan.weeks_until_race }, (_, i) => i + 1);
   const weekSessions = plan.sessions.filter((s) => s.week === selectedWeek);
+
+  const sessionsByDay = DAYS_ORDER.reduce<Record<string, typeof weekSessions>>(
+    (acc, day) => {
+      const daySessions = weekSessions.filter((s) => s.day === day);
+      if (daySessions.length > 0) acc[day] = daySessions;
+      return acc;
+    },
+    {}
+  );
 
   return (
     <Screen>
@@ -138,16 +148,8 @@ export default function PlanScreen() {
       </View>
 
       <ScrollView style={styles.sessionList} showsVerticalScrollIndicator={false}>
-        {weekSessions.map((session) => (
-          <SessionCard
-            key={session.id}
-            day={session.day}
-            sport={session.sport}
-            duration_minutes={session.duration_minutes}
-            zone={session.zone}
-            zone_label={session.zone_label}
-            description={session.description}
-          />
+        {Object.entries(sessionsByDay).map(([day, sessions]) => (
+          <DayCard key={day} day={day} sessions={sessions} />
         ))}
       </ScrollView>
     </Screen>
