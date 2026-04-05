@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { Screen } from "../../components/Screen";
 import { DayCard } from "../../components/DayCard";
@@ -30,6 +31,43 @@ interface Plan {
   sessions: Session[];
 }
 
+interface WorkoutDetail {
+  session_id: string;
+  warmup: string;
+  main_set: string;
+  cooldown: string;
+  zone_ranges: Record<string, string>;
+  coaching_notes: string;
+}
+
+interface AthleteProfile {
+  goal: string;
+  experience: string;
+  strongest_discipline: string;
+  weakest_discipline: string;
+}
+
+const WorkoutSection = ({ title, content }: { title: string; content: string }) => (
+  <View style={styles.workoutSection}>
+    <Text style={styles.workoutSectionTitle}>{title}</Text>
+    <Text style={styles.workoutSectionContent}>{content}</Text>
+  </View>
+);
+
+const ZoneRanges = ({ ranges }: { ranges: Record<string, string> }) => (
+  <View style={styles.zoneRangesCard}>
+    <Text style={styles.zoneRangesTitle}>Zone Targets</Text>
+    <View style={styles.zoneRangesGrid}>
+      {Object.entries(ranges).map(([key, value]) => (
+        <View key={key} style={styles.zoneRangeItem}>
+          <Text style={styles.zoneRangeKey}>{key.toUpperCase()}</Text>
+          <Text style={styles.zoneRangeValue}>{value}</Text>
+        </View>
+      ))}
+    </View>
+  </View>
+);
+
 export default function PlanScreen() {
   const { user } = useAuth();
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -37,6 +75,12 @@ export default function PlanScreen() {
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [profile, setProfile] = useState<AthleteProfile | null>(null);
+
+  const [expandedSession, setExpandedSession] = useState<WorkoutDetail | null>(null);
+  const [expandLoading, setExpandLoading] = useState(false);
+  const [expandError, setExpandError] = useState<string | null>(null);
+  const [expandModalVisible, setExpandModalVisible] = useState(false);
 
   const fetchPlan = async () => {
     if (!user) return;
@@ -46,6 +90,12 @@ export default function PlanScreen() {
       const data: Plan = await res.json();
       setPlan(data);
       setError(null);
+
+      const profileRes = await fetch(`${API_URL}/profiles/${user.id}`);
+      if (profileRes.ok) {
+        const profileData: AthleteProfile = await profileRes.json();
+        setProfile(profileData);
+      }
     } catch {
       setError("Could not load your plan. Generate one first.");
     } finally {
@@ -72,6 +122,43 @@ export default function PlanScreen() {
     } finally {
       setRegenerating(false);
     }
+  };
+
+  const expandSession = async (sessionId: string) => {
+    if (!user) return;
+    setExpandLoading(true);
+    setExpandError(null);
+    setExpandedSession(null);
+    setExpandModalVisible(true);
+    try {
+      const res = await fetch(`${API_URL}/plans/session/${sessionId}/expand`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: user.id,
+          zones: {},
+          athlete_profile: {
+            goal: profile?.goal ?? "recreational",
+            experience: profile?.experience ?? "recreational",
+            strongest_discipline: profile?.strongest_discipline ?? "bike",
+            weakest_discipline: profile?.weakest_discipline ?? "swim",
+          },
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to expand session");
+      const data: WorkoutDetail = await res.json();
+      setExpandedSession(data);
+    } catch {
+      setExpandError("Could not load workout details. Try again.");
+    } finally {
+      setExpandLoading(false);
+    }
+  };
+
+  const closeExpandModal = () => {
+    setExpandModalVisible(false);
+    setExpandedSession(null);
+    setExpandError(null);
   };
 
   useEffect(() => {
@@ -184,9 +271,44 @@ export default function PlanScreen() {
 
       <ScrollView style={styles.sessionList} showsVerticalScrollIndicator={false}>
         {Object.entries(sessionsByDay).map(([day, sessions]) => (
-          <DayCard key={day} day={day} sessions={sessions} />
+          <DayCard key={day} day={day} sessions={sessions} onPressSession={expandSession} />
         ))}
       </ScrollView>
+
+      <Modal
+        visible={expandModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={closeExpandModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Workout Detail</Text>
+              <TouchableOpacity onPress={closeExpandModal}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {expandLoading ? (
+              <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} />
+            ) : expandError ? (
+              <Text style={styles.expandError}>{expandError}</Text>
+            ) : expandedSession ? (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <WorkoutSection title="Warm-up" content={expandedSession.warmup} />
+                <WorkoutSection title="Main Set" content={expandedSession.main_set} />
+                <WorkoutSection title="Cool-down" content={expandedSession.cooldown} />
+                <ZoneRanges ranges={expandedSession.zone_ranges} />
+                <View style={styles.coachingCard}>
+                  <Text style={styles.coachingLabel}>Coach's Note</Text>
+                  <Text style={styles.coachingText}>{expandedSession.coaching_notes}</Text>
+                </View>
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -306,5 +428,108 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     fontWeight: "600",
     color: COLORS.white,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: COLORS.background,
+    borderTopLeftRadius: BORDER_RADIUS.xl,
+    borderTopRightRadius: BORDER_RADIUS.xl,
+    padding: SPACING.lg,
+    maxHeight: "85%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: SPACING.lg,
+  },
+  modalTitle: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: "bold",
+    color: COLORS.white,
+  },
+  modalClose: {
+    fontSize: 18,
+    color: COLORS.lightGray,
+    padding: SPACING.sm,
+  },
+  workoutSection: {
+    backgroundColor: COLORS.mediumGray,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  workoutSectionTitle: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: "700",
+    color: COLORS.primary,
+    marginBottom: SPACING.xs,
+  },
+  workoutSectionContent: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.white,
+    lineHeight: 22,
+  },
+  zoneRangesCard: {
+    backgroundColor: COLORS.mediumGray,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  zoneRangesTitle: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: "700",
+    color: COLORS.primary,
+    marginBottom: SPACING.sm,
+  },
+  zoneRangesGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: SPACING.sm,
+  },
+  zoneRangeItem: {
+    backgroundColor: COLORS.darkGray,
+    borderRadius: BORDER_RADIUS.sm,
+    padding: SPACING.sm,
+    minWidth: "45%",
+  },
+  zoneRangeKey: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.lightGray,
+    marginBottom: 2,
+  },
+  zoneRangeValue: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: "600",
+    color: COLORS.white,
+  },
+  coachingCard: {
+    backgroundColor: COLORS.mediumGray,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.lg,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.primary,
+  },
+  coachingLabel: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.primary,
+    fontWeight: "700",
+    marginBottom: SPACING.xs,
+  },
+  coachingText: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.white,
+    lineHeight: 22,
+  },
+  expandError: {
+    color: COLORS.lightGray,
+    textAlign: "center",
+    marginTop: SPACING.xl,
   },
 });

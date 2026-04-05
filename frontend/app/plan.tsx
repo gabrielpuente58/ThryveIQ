@@ -103,7 +103,6 @@ export default function PlanScreen() {
         {weekSessions.map((session) => (
           <SessionCard
             key={session.id}
-            day={session.day}
             sport={session.sport}
             duration_minutes={session.duration_minutes}
             zone={session.zone}
