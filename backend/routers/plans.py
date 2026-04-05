@@ -1,11 +1,12 @@
 from fastapi import APIRouter, HTTPException, Query
 from models.plan import GeneratePlanRequest, PlanResponse, Session, Phase
 from models.blueprint import ArchitectRequest, PlanBlueprint
+from models.workout_expander import WorkoutDetail, ExpandRequest
 from db.supabase import supabase
-from services.phases import calculate_phases
-from services.llm import generate_phase_sessions, generate_phase_previews
-from services.plan_engine import generate_plan as generate_plan_fallback
 from services.agents.plan_architect import run_plan_architect
+from services.week_pipeline import generate_full_plan
+from services.tools.compute_zones import compute_zones_math
+from services.agents.workout_expander import run_workout_expander
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -26,35 +27,44 @@ async def generate(request: GeneratePlanRequest):
 
     profile = profile_result.data
 
-    # Calculate phases
-    phases = calculate_phases(profile["race_date"])
+    # Step 1 — Run Plan Architect to get phase blueprint
+    try:
+        blueprint = await run_plan_architect(profile)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=f"Plan Architect failed: {exc}")
 
-    # Generate first phase sessions via LLM, capped at max_weeks
-    first_phase = dict(phases[0])
-    first_phase["end_week"] = min(first_phase["end_week"], first_phase["start_week"] + request.max_weeks - 1)
-    all_sessions = await generate_phase_sessions(profile, first_phase, phases)
+    # Step 2 — Compute zones using defaults (profile doesn't have FTP/LTHR yet)
+    zones = compute_zones_math(ftp=0, lthr=0, css="")
 
-    # If LLM failed, fall back to rule engine for the whole plan
-    if not all_sessions:
-        print("LLM failed for first phase, using rule engine fallback")
-        fallback = generate_plan_fallback(profile)
-        all_sessions = fallback["sessions"]
+    # Step 3 — Generate all weeks via the week pipeline
+    all_weeks = await generate_full_plan(blueprint, profile, zones)
 
-    # Get previews for future phases
-    previews = await generate_phase_previews(profile, phases, first_phase["name"])
+    # Step 4 — Flatten sessions from all weeks into a single list
+    all_sessions = []
+    for week in all_weeks:
+        for s in week.sessions:
+            all_sessions.append(s.model_dump())
 
-    # Attach previews to phase objects
+    # Step 5 — Build phase list from blueprint
     phase_data = []
-    for p in phases:
+    cumulative_week = 0
+    for phase in blueprint.phases:
+        start_week = cumulative_week + 1
+        end_week = cumulative_week + phase.weeks
         phase_data.append({
-            **p,
-            "preview": previews.get(p["name"], None),
+            "name": phase.phase_name,
+            "weeks": phase.weeks,
+            "start_week": start_week,
+            "end_week": end_week,
+            "focus": phase.focus,
+            "preview": None,
         })
+        cumulative_week = end_week
 
-    # Calculate weeks_until_race
-    weeks_until_race = phases[-1]["end_week"] if phases else 1
+    # Step 6 — weeks_until_race from blueprint
+    weeks_until_race = blueprint.total_weeks
 
-    # Save to Supabase
+    # Step 7 — Save to Supabase
     row = {
         "user_id": request.user_id,
         "weeks_until_race": weeks_until_race,
@@ -77,6 +87,37 @@ async def generate(request: GeneratePlanRequest):
         phases=[Phase(**p) for p in (saved.get("phases") or [])],
         sessions=[Session(**s) for s in saved["sessions"]],
     )
+
+
+@router.post("/session/{session_id}/expand", response_model=WorkoutDetail)
+async def expand_session(session_id: str, request: ExpandRequest):
+    # Fetch user's current plan from Supabase
+    plan_result = (
+        supabase.table("plans")
+        .select("*")
+        .eq("user_id", request.user_id)
+        .order("generated_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+
+    if not plan_result.data:
+        raise HTTPException(status_code=404, detail="No plan found. Generate one first.")
+
+    sessions = plan_result.data[0].get("sessions", [])
+
+    # Find the session with matching id
+    session = next((s for s in sessions if s.get("id") == session_id), None)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found in current plan.")
+
+    # Expand the session via the Workout Expander agent
+    try:
+        detail = await run_workout_expander(session, request.zones, request.athlete_profile)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=f"Workout Expander failed: {exc}")
+
+    return detail
 
 
 @router.get("/current", response_model=PlanResponse)
