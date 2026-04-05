@@ -1,5 +1,5 @@
 """
-Plan Architect Agent — Agent 1 of 3 in ThryveIQ's LangChain plan generation pipeline.
+Plan Architect Agent — Agent 1 of 3 in ThryveIQ's LangGraph plan generation pipeline.
 
 Responsibility:
   - Takes athlete guide rails (goal, experience, weeks_until_race, weekly_hours, etc.)
@@ -13,16 +13,23 @@ Tools available to this agent:
 
 Output:
   - PlanBlueprint: validated Pydantic model with all phases + total_weeks + notes.
+
+Graph structure:
+  START → call_llm → routing_function → run_compute_zones → call_llm (loop)
+                                      → parse_result → END
 """
 from __future__ import annotations
 
 import json
+import operator
 import os
 from datetime import date
+from typing import Annotated, TypedDict
 
 from dotenv import load_dotenv
-from langchain.agents import create_agent
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_ollama import ChatOllama
+from langgraph.graph import END, START, StateGraph
 
 from models.blueprint import PlanBlueprint
 from services.tools.compute_zones import compute_zones
@@ -31,6 +38,8 @@ load_dotenv()
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
+
+_MAX_TOOL_LOOPS = 5
 
 _SYSTEM = """You are an expert Ironman 70.3 triathlon coach and periodization specialist.
 
@@ -95,6 +104,33 @@ Current background: {current_background}
 
 Produce a PlanBlueprint with all phases, total_weeks, and coaching notes."""
 
+
+# ---------------------------------------------------------------------------
+# State definition
+# ---------------------------------------------------------------------------
+
+class AgentState(TypedDict):
+    """LangGraph state for the Plan Architect graph."""
+
+    # Append reducer — messages accumulate across nodes
+    messages: Annotated[list, operator.add]
+
+    # Replace semantics — only the current batch of pending tool calls is stored
+    tool_calls: list
+
+    # Replace semantics — the athlete profile dict passed in at invocation time
+    profile: dict
+
+    # Replace semantics — populated by parse_result node, None until then
+    result: PlanBlueprint | None
+
+    # Replace semantics — tracks how many times call_llm has run to prevent loops
+    call_count: int
+
+
+# ---------------------------------------------------------------------------
+# Helper functions (kept exactly as before)
+# ---------------------------------------------------------------------------
 
 def _weeks_until_race(race_date_str: str) -> int:
     """Calculate weeks from today until the race date."""
@@ -203,14 +239,159 @@ def _parse_blueprint(raw: str | dict) -> PlanBlueprint:
     return PlanBlueprint.model_validate(data)
 
 
+# ---------------------------------------------------------------------------
+# LLM instance (module-level so the graph reuses it)
+# ---------------------------------------------------------------------------
+
+def _make_llm() -> ChatOllama:
+    return ChatOllama(
+        model=OLLAMA_MODEL,
+        base_url=OLLAMA_HOST,
+        temperature=0,
+        format="json",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Graph nodes
+# ---------------------------------------------------------------------------
+
+def _call_llm(state: AgentState) -> dict:
+    """
+    Build the full message list from state and invoke the LLM with compute_zones
+    bound as a tool. Returns new messages (the AIMessage) and the tool_calls
+    extracted from that response.
+    """
+    llm = _make_llm()
+    llm_with_tools = llm.bind_tools([compute_zones])
+
+    # Build the message list: system prompt + all prior messages
+    system_msg = SystemMessage(content=_SYSTEM)
+    messages = [system_msg] + list(state["messages"])
+
+    response: AIMessage = llm_with_tools.invoke(messages)
+
+    tool_calls = response.tool_calls if hasattr(response, "tool_calls") and response.tool_calls else []
+
+    return {
+        "messages": [response],
+        "tool_calls": tool_calls,
+        "call_count": state.get("call_count", 0) + 1,
+    }
+
+
+def _run_compute_zones(state: AgentState) -> dict:
+    """
+    Execute the first pending tool call (expected to be compute_zones).
+    Pops it from tool_calls and appends a ToolMessage so the LLM sees the result
+    on the next call_llm invocation.
+    """
+    pending = list(state["tool_calls"])
+    tool_call = pending[0]
+    remaining = pending[1:]
+
+    # Execute the tool — args is a dict matching compute_zones parameters
+    tool_result = compute_zones.invoke(tool_call["args"])
+
+    tool_message = ToolMessage(
+        content=json.dumps(tool_result),
+        name=tool_call["name"],
+        tool_call_id=tool_call["id"],
+    )
+
+    return {
+        "messages": [tool_message],
+        "tool_calls": remaining,
+    }
+
+
+def _parse_result(state: AgentState) -> dict:
+    """
+    Extract the JSON blueprint from the last AIMessage content and validate it
+    into a PlanBlueprint. Stores the result in state["result"].
+    """
+    # Walk messages in reverse to find the last AIMessage with content
+    content = None
+    for msg in reversed(state["messages"]):
+        if isinstance(msg, AIMessage) and msg.content:
+            content = msg.content
+            break
+
+    if content is None:
+        raise ValueError("Plan Architect: no AIMessage content found to parse.")
+
+    try:
+        blueprint = _parse_blueprint(content)
+    except Exception as exc:
+        raise ValueError(
+            f"Plan Architect returned unparseable output.\n"
+            f"Raw content: {content!r}\n"
+            f"Error: {exc}"
+        ) from exc
+
+    return {"result": blueprint}
+
+
+# ---------------------------------------------------------------------------
+# Routing function
+# ---------------------------------------------------------------------------
+
+def _routing_function(state: AgentState) -> str:
+    """
+    Decide which node to visit after call_llm:
+    - If call_count exceeded the safety limit, go straight to parse_result.
+    - If there are pending tool calls and the first is compute_zones, run it.
+    - Otherwise, parse the LLM's final response.
+    """
+    if state.get("call_count", 0) > _MAX_TOOL_LOOPS:
+        return "parse_result"
+
+    pending = state.get("tool_calls", [])
+    if pending and pending[0].get("name") == "compute_zones":
+        return "run_compute_zones"
+
+    return "parse_result"
+
+
+# ---------------------------------------------------------------------------
+# Graph compilation
+# ---------------------------------------------------------------------------
+
+def _build_graph() -> StateGraph:
+    workflow = StateGraph(AgentState)
+
+    workflow.add_node("call_llm", _call_llm)
+    workflow.add_node("run_compute_zones", _run_compute_zones)
+    workflow.add_node("parse_result", _parse_result)
+
+    workflow.add_edge(START, "call_llm")
+    workflow.add_conditional_edges(
+        "call_llm",
+        _routing_function,
+        ["run_compute_zones", "parse_result"],
+    )
+    workflow.add_edge("run_compute_zones", "call_llm")
+    workflow.add_edge("parse_result", END)
+
+    return workflow.compile()
+
+
+# Compile once at module import time
+_graph = _build_graph()
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
 async def run_plan_architect(profile: dict) -> PlanBlueprint:
     """
-    Run the Plan Architect Agent for the given athlete profile dict.
+    Run the Plan Architect StateGraph for the given athlete profile dict.
 
-    Uses langchain.agents.create_agent with:
+    Uses a LangGraph StateGraph with:
     - ChatOllama (format="json", temperature=0) for deterministic, structured output
-    - compute_zones tool for optional zone lookup
-    - response_format=PlanBlueprint for structured Pydantic output
+    - compute_zones tool for optional zone lookup (loops back to LLM with result)
+    - _parse_blueprint() to validate the final AIMessage into a PlanBlueprint
 
     Args:
         profile: Athlete profile row from Supabase (athlete_profiles table).
@@ -226,22 +407,7 @@ async def run_plan_architect(profile: dict) -> PlanBlueprint:
     """
     weeks = _weeks_until_race(profile["race_date"])
 
-    llm = ChatOllama(
-        model=OLLAMA_MODEL,
-        base_url=OLLAMA_HOST,
-        temperature=0,
-        format="json",
-    )
-
-    # response_format is not supported by Ollama's API — we use format="json" on the
-    # model and parse the output manually with _parse_blueprint instead.
-    agent = create_agent(
-        model=llm,
-        tools=[compute_zones],
-        system_prompt=_SYSTEM,
-    )
-
-    human_message = _HUMAN_TEMPLATE.format(
+    human_text = _HUMAN_TEMPLATE.format(
         goal=profile.get("goal", "recreational"),
         experience=profile.get("experience", "recreational"),
         race_date=profile.get("race_date", ""),
@@ -253,27 +419,18 @@ async def run_plan_architect(profile: dict) -> PlanBlueprint:
         current_background=profile.get("current_background", "General fitness"),
     )
 
-    result = await agent.ainvoke({"messages": [("human", human_message)]})
+    initial_state: AgentState = {
+        "messages": [HumanMessage(content=human_text)],
+        "tool_calls": [],
+        "profile": profile,
+        "result": None,
+        "call_count": 0,
+    }
 
-    # LangGraph returns the final messages; extract the structured response
-    # When response_format is set, the last message content is the Pydantic model
-    messages = result.get("messages", [])
-    if not messages:
-        raise ValueError("Plan Architect agent returned no messages.")
+    result_state = await _graph.ainvoke(initial_state)
 
-    last_message = messages[-1]
+    blueprint = result_state.get("result")
+    if blueprint is None:
+        raise ValueError("Plan Architect graph completed but result is None.")
 
-    # Structured output: content may already be a PlanBlueprint or dict
-    content = getattr(last_message, "content", last_message)
-
-    if isinstance(content, PlanBlueprint):
-        return content
-
-    try:
-        return _parse_blueprint(content)
-    except Exception as exc:
-        raise ValueError(
-            f"Plan Architect returned unparseable output.\n"
-            f"Raw content: {content!r}\n"
-            f"Error: {exc}"
-        ) from exc
+    return blueprint
