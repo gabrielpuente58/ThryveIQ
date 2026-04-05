@@ -45,6 +45,25 @@ class WorkoutDetail(BaseModel):
     )
 
 
+class ExpandRequest(BaseModel):
+    """Simplified request payload for POST /plans/session/{session_id}/expand.
+
+    The session is fetched server-side from the user's current plan using
+    session_id from the URL and user_id from this body.
+    """
+
+    user_id: str = Field(description="Supabase user UUID — used to fetch the current plan.")
+    zones: dict = Field(
+        description="Athlete's computed training zones (output from compute_zones tool)."
+    )
+    athlete_profile: dict = Field(
+        description=(
+            "Key athlete attributes: goal, experience, weakest_discipline, strongest_discipline. "
+            "Used to tailor coaching language and tips."
+        )
+    )
+
+
 class ExpandSessionRequest(BaseModel):
     """Request payload for the Workout Expander agent."""
 
