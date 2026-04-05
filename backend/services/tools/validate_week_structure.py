@@ -103,13 +103,22 @@ def validate_week_structure_logic(week_skeleton: dict) -> dict:
             )
 
     # -------------------------------------------------------------------------
-    # Check 5: At least 1 session per sport that appears in the skeleton
-    # -------------------------------------------------------------------------
-    sports_in_skeleton = {s.get("sport") for s in sessions if s.get("sport")}
-    for sport in sports_in_skeleton:
-        count = sum(1 for s in sessions if s.get("sport") == sport)
-        if count < 1:
-            issues.append(f"No sessions found for sport '{sport}'.")
+    # Check 5: No sport appears in the skeleton with zero actual sessions.
+    # This guards against malformed skeletons where a sport key exists but all
+    # its session dicts have been stripped out (e.g. by a partial fix pass).
+    # We count by sport and flag any with duration_minutes == 0 for all entries.
+    sport_durations: dict[str, list[int]] = {}
+    for s in sessions:
+        sport = s.get("sport")
+        if sport:
+            sport_durations.setdefault(sport, []).append(int(s.get("duration_minutes", 0)))
+
+    for sport, durations in sport_durations.items():
+        if all(d == 0 for d in durations):
+            issues.append(
+                f"All sessions for sport '{sport}' have zero duration — "
+                "they will contribute no training load."
+            )
 
     # -------------------------------------------------------------------------
     # Check 6: Ramp rate <= 10% (if previous_week_minutes provided)

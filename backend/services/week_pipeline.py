@@ -178,13 +178,46 @@ async def generate_week(
         retries_left -= 1
 
     # Step 4 — LLM descriptions via Workout Builder
-    result = await run_workout_builder(
-        week_skeleton=week_skeleton,
-        phase_name=phase.phase_name,
-        phase_focus=phase.focus,
-        zones=zones,
-        athlete_profile=athlete_profile,
-    )
+    try:
+        result = await run_workout_builder(
+            week_skeleton=week_skeleton,
+            phase_name=phase.phase_name,
+            phase_focus=phase.focus,
+            zones=zones,
+            athlete_profile=athlete_profile,
+        )
+    except ValueError as exc:
+        # The LLM returned unparseable output. Fall back to placeholder descriptions
+        # so a single bad LLM response doesn't abort the entire plan generation.
+        logger.error(
+            "week_pipeline: week %d Workout Builder failed (%s) — using skeleton fallback",
+            week_index,
+            exc,
+        )
+        from models.workout_builder import SessionWithDescription, WeekWithDescriptions as _WWD
+
+        _ZONE_LABELS = {1: "Recovery", 2: "Aerobic", 3: "Tempo", 4: "Threshold", 5: "VO2max"}
+        fallback_sessions = [
+            SessionWithDescription(
+                id=s["id"],
+                week=s["week"],
+                day=s["day"],
+                sport=s["sport"],
+                duration_minutes=s["duration_minutes"],
+                zone=s["zone"],
+                zone_label=s["zone_label"],
+                description=(
+                    f"Zone {s['zone']} {s['sport']} session. "
+                    f"{s['duration_minutes']} minutes at {s['zone_label']} effort."
+                ),
+            )
+            for s in week_skeleton.get("sessions", [])
+        ]
+        result = _WWD(
+            week_index=week_index,
+            phase_name=phase.phase_name,
+            sessions=fallback_sessions,
+        )
 
     return result
 
