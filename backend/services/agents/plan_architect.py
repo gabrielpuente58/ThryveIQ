@@ -232,6 +232,11 @@ def _parse_blueprint(raw: str | dict) -> PlanBlueprint:
                 deduped.append(p)
         data["phases"] = deduped
 
+        # Clamp weeks to minimum 1 — LLM sometimes returns 0 for short timelines
+        for p in data["phases"]:
+            if p.get("weeks", 1) < 1:
+                p["weeks"] = 1
+
         # Auto-correct total_weeks to match actual (deduplicated) phase sum
         computed_sum = sum(p.get("weeks", 0) for p in data["phases"])
         data["total_weeks"] = computed_sum
