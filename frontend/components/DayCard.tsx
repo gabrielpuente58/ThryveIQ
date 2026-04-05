@@ -16,9 +16,10 @@ interface Session {
 interface DayCardProps {
   day: string;
   sessions: Session[];
+  onPressSession?: (sessionId: string) => void;
 }
 
-export const DayCard: React.FC<DayCardProps> = ({ day, sessions }) => {
+export const DayCard: React.FC<DayCardProps> = ({ day, sessions, onPressSession }) => {
   return (
     <Card style={styles.card}>
       <Text style={styles.day}>{day}</Text>
@@ -31,6 +32,7 @@ export const DayCard: React.FC<DayCardProps> = ({ day, sessions }) => {
             zone={session.zone}
             zone_label={session.zone_label}
             description={session.description}
+            onPress={onPressSession ? () => onPressSession(session.id) : undefined}
           />
         </React.Fragment>
       ))}
