@@ -333,14 +333,15 @@ def _routing_function(state: WorkoutExpanderState) -> str:
     """
     Decide which node to visit after call_llm:
     - If call_count exceeded the safety limit, go straight to parse_result.
-    - If there are pending compute_zones tool calls, run the tool.
+    - If there are any pending tool calls, run the tool (handles unknown names
+      gracefully via the error path in _run_tool).
     - Otherwise, parse the LLM's final response.
     """
     if state.get("call_count", 0) > _MAX_TOOL_LOOPS:
         return "parse_result"
 
     pending = state.get("tool_calls", [])
-    if pending and pending[0].get("name") == "compute_zones":
+    if pending:
         return "run_tool"
 
     return "parse_result"
