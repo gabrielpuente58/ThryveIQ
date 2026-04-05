@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { Card } from "./Card";
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from "../constants/theme";
 
@@ -21,6 +21,7 @@ interface SessionCardProps {
   zone: number;
   zone_label: string;
   description: string;
+  onPress?: () => void;
 }
 
 export const SessionCard: React.FC<SessionCardProps> = ({
@@ -29,10 +30,11 @@ export const SessionCard: React.FC<SessionCardProps> = ({
   zone,
   zone_label,
   description,
+  onPress,
 }) => {
   const sportColor = SPORT_COLORS[sport] ?? COLORS.primary;
 
-  return (
+  const inner = (
     <View style={styles.session}>
       <View style={styles.header}>
         <View style={styles.left}>
@@ -46,8 +48,23 @@ export const SessionCard: React.FC<SessionCardProps> = ({
         </View>
       </View>
       <Text style={styles.description}>{description}</Text>
+      {onPress && (
+        <View style={styles.expandHint}>
+          <Text style={styles.expandHintText}>Tap to expand ›</Text>
+        </View>
+      )}
     </View>
   );
+
+  if (onPress) {
+    return (
+      <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
+        {inner}
+      </TouchableOpacity>
+    );
+  }
+
+  return inner;
 };
 
 const styles = StyleSheet.create({
@@ -93,5 +110,14 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     color: COLORS.lightGray,
     lineHeight: 20,
+  },
+  expandHint: {
+    alignItems: "flex-end",
+    marginTop: SPACING.xs,
+  },
+  expandHintText: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.primary,
+    opacity: 0.8,
   },
 });
