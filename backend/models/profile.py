@@ -26,3 +26,13 @@ class AthleteProfileResponse(BaseModel):
     strongest_discipline: str
     weakest_discipline: str
     zones: Optional[dict] = None
+
+
+class UpdateProfileRequest(BaseModel):
+    weekly_hours: Optional[float] = None
+    days_available: Optional[int] = None
+    goal: Optional[str] = None
+    experience: Optional[str] = None
+    strongest_discipline: Optional[str] = None
+    weakest_discipline: Optional[str] = None
+    race_date: Optional[str] = None
