@@ -5,7 +5,8 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from "react-native";
-import { COLORS, SPACING, BORDER_RADIUS, FONT_SIZES } from "../constants/theme";
+import { ThemeColors, SPACING, BORDER_RADIUS, FONT_SIZES } from "../constants/theme";
+import { useTheme } from "../context/ThemeContext";
 
 interface ButtonProps {
   title: string;
@@ -22,6 +23,8 @@ export const Button: React.FC<ButtonProps> = ({
   disabled = false,
   loading = false,
 }) => {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const isPrimary = variant === "primary";
 
   return (
@@ -37,7 +40,7 @@ export const Button: React.FC<ButtonProps> = ({
     >
       {loading ? (
         <ActivityIndicator
-          color={isPrimary ? COLORS.background : COLORS.white}
+          color={isPrimary ? colors.background : colors.white}
         />
       ) : (
         <Text
@@ -53,7 +56,7 @@ export const Button: React.FC<ButtonProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   button: {
     paddingVertical: SPACING.md,
     paddingHorizontal: SPACING.lg,
@@ -63,12 +66,12 @@ const styles = StyleSheet.create({
     minHeight: 50,
   },
   primaryButton: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.primary,
   },
   secondaryButton: {
-    backgroundColor: COLORS.mediumGray,
+    backgroundColor: colors.mediumGray,
     borderWidth: 1,
-    borderColor: COLORS.lightGray,
+    borderColor: colors.lightGray,
   },
   disabledButton: {
     opacity: 0.5,
@@ -78,9 +81,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   primaryText: {
-    color: COLORS.background,
+    color: colors.background,
   },
   secondaryText: {
-    color: COLORS.white,
+    color: colors.white,
   },
 });

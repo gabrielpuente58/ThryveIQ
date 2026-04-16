@@ -10,7 +10,7 @@ import {
 import { Screen } from "../components/Screen";
 import { SessionCard } from "../components/SessionCard";
 import { API_URL } from "../constants/api";
-import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from "../constants/theme";
+import { COLORS, ThemeColors, SPACING, FONT_SIZES, BORDER_RADIUS } from "../constants/theme";
 
 interface Session {
   id: string;

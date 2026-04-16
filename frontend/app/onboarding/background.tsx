@@ -4,11 +4,14 @@ import { Screen } from "../../components/Screen";
 import { Button } from "../../components/Button";
 import { ProgressBar } from "../../components/ProgressBar";
 import { useOnboarding } from "../../context/OnboardingContext";
-import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from "../../constants/theme";
+import { ThemeColors, SPACING, FONT_SIZES, BORDER_RADIUS } from "../../constants/theme";
+import { useTheme } from "../../context/ThemeContext";
 
 export default function BackgroundScreen() {
   const router = useRouter();
   const { data, update } = useOnboarding();
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -25,7 +28,7 @@ export default function BackgroundScreen() {
           <TextInput
             style={styles.textArea}
             placeholder="e.g. I run 3x a week, swam in college, new to cycling..."
-            placeholderTextColor={COLORS.lightGray}
+            placeholderTextColor={colors.lightGray}
             multiline
             numberOfLines={5}
             textAlignVertical="top"
@@ -49,7 +52,7 @@ export default function BackgroundScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     justifyContent: "space-between",
   },
@@ -61,19 +64,19 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FONT_SIZES.xxl,
     fontWeight: "bold",
-    color: COLORS.white,
+    color: colors.white,
   },
   subtitle: {
     fontSize: FONT_SIZES.md,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     lineHeight: 22,
   },
   textArea: {
-    backgroundColor: COLORS.mediumGray,
+    backgroundColor: colors.mediumGray,
     borderRadius: BORDER_RADIUS.md,
     padding: SPACING.md,
     fontSize: FONT_SIZES.md,
-    color: COLORS.white,
+    color: colors.white,
     minHeight: 120,
   },
   buttons: {

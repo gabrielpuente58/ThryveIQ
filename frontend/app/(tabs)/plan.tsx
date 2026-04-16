@@ -11,8 +11,9 @@ import {
 import { Screen } from "../../components/Screen";
 import { DayCard } from "../../components/DayCard";
 import { API_URL } from "../../constants/api";
-import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from "../../constants/theme";
+import { ThemeColors, SPACING, FONT_SIZES, BORDER_RADIUS } from "../../constants/theme";
 import { useAuth } from "../../context/AuthContext";
+import { useTheme } from "../../context/ThemeContext";
 
 interface Session {
   id: string;
@@ -47,29 +48,37 @@ interface AthleteProfile {
   weakest_discipline: string;
 }
 
-const WorkoutSection = ({ title, content }: { title: string; content: string }) => (
-  <View style={styles.workoutSection}>
-    <Text style={styles.workoutSectionTitle}>{title}</Text>
-    <Text style={styles.workoutSectionContent}>{content}</Text>
-  </View>
-);
-
-const ZoneRanges = ({ ranges }: { ranges: Record<string, string> }) => (
-  <View style={styles.zoneRangesCard}>
-    <Text style={styles.zoneRangesTitle}>Zone Targets</Text>
-    <View style={styles.zoneRangesGrid}>
-      {Object.entries(ranges).map(([key, value]) => (
-        <View key={key} style={styles.zoneRangeItem}>
-          <Text style={styles.zoneRangeKey}>{key.toUpperCase()}</Text>
-          <Text style={styles.zoneRangeValue}>{value}</Text>
-        </View>
-      ))}
+const WorkoutSection = ({ title, content, colors }: { title: string; content: string; colors: ThemeColors }) => {
+  const styles = makeStyles(colors);
+  return (
+    <View style={styles.workoutSection}>
+      <Text style={styles.workoutSectionTitle}>{title}</Text>
+      <Text style={styles.workoutSectionContent}>{content}</Text>
     </View>
-  </View>
-);
+  );
+};
+
+const ZoneRanges = ({ ranges, colors }: { ranges: Record<string, string>; colors: ThemeColors }) => {
+  const styles = makeStyles(colors);
+  return (
+    <View style={styles.zoneRangesCard}>
+      <Text style={styles.zoneRangesTitle}>Zone Targets</Text>
+      <View style={styles.zoneRangesGrid}>
+        {Object.entries(ranges).map(([key, value]) => (
+          <View key={key} style={styles.zoneRangeItem}>
+            <Text style={styles.zoneRangeKey}>{key.toUpperCase()}</Text>
+            <Text style={styles.zoneRangeValue}>{value}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+};
 
 export default function PlanScreen() {
   const { user } = useAuth();
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -85,9 +94,12 @@ export default function PlanScreen() {
   const fetchPlan = async () => {
     if (!user) return;
     try {
+      console.log("Fetching plan from:", `${API_URL}/plans/current?user_id=${user.id}`);
       const res = await fetch(`${API_URL}/plans/current?user_id=${user.id}`);
+      console.log("Plan response status:", res.status);
       if (!res.ok) throw new Error("No plan found");
       const data: Plan = await res.json();
+      console.log("Plan loaded, sessions:", data.sessions?.length);
       setPlan(data);
       setError(null);
 
@@ -172,7 +184,7 @@ export default function PlanScreen() {
   if (loading) {
     return (
       <Screen style={styles.centered}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+        <ActivityIndicator size="large" color={colors.primary} />
       </Screen>
     );
   }
@@ -214,17 +226,6 @@ export default function PlanScreen() {
     <Screen>
       <View style={styles.header}>
         <Text style={styles.title}>Your Training Plan</Text>
-        <TouchableOpacity
-          style={[styles.regenButton, regenerating && styles.regenButtonDisabled]}
-          onPress={regeneratePlan}
-          disabled={regenerating}
-        >
-          {regenerating ? (
-            <ActivityIndicator size="small" color={COLORS.background} />
-          ) : (
-            <Text style={styles.regenButtonText}>Regenerate</Text>
-          )}
-        </TouchableOpacity>
       </View>
 
       <View style={styles.pillsContainer}>
@@ -291,15 +292,15 @@ export default function PlanScreen() {
             </View>
 
             {expandLoading ? (
-              <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} />
+              <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
             ) : expandError ? (
               <Text style={styles.expandError}>{expandError}</Text>
             ) : expandedSession ? (
               <ScrollView showsVerticalScrollIndicator={false}>
-                <WorkoutSection title="Warm-up" content={expandedSession.warmup} />
-                <WorkoutSection title="Main Set" content={expandedSession.main_set} />
-                <WorkoutSection title="Cool-down" content={expandedSession.cooldown} />
-                <ZoneRanges ranges={expandedSession.zone_ranges} />
+                <WorkoutSection title="Warm-up" content={expandedSession.warmup} colors={colors} />
+                <WorkoutSection title="Main Set" content={expandedSession.main_set} colors={colors} />
+                <WorkoutSection title="Cool-down" content={expandedSession.cooldown} colors={colors} />
+                <ZoneRanges ranges={expandedSession.zone_ranges} colors={colors} />
                 <View style={styles.coachingCard}>
                   <Text style={styles.coachingLabel}>Coach's Note</Text>
                   <Text style={styles.coachingText}>{expandedSession.coaching_notes}</Text>
@@ -313,7 +314,7 @@ export default function PlanScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   centered: {
     justifyContent: "center",
     alignItems: "center",
@@ -327,10 +328,10 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FONT_SIZES.xxl,
     fontWeight: "bold",
-    color: COLORS.white,
+    color: colors.white,
   },
   regenButton: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.primary,
     paddingVertical: SPACING.xs,
     paddingHorizontal: SPACING.md,
     borderRadius: BORDER_RADIUS.md,
@@ -341,13 +342,13 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   regenButtonText: {
-    color: COLORS.background,
+    color: colors.background,
     fontWeight: "600",
     fontSize: FONT_SIZES.sm,
   },
   errorText: {
     fontSize: FONT_SIZES.md,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     textAlign: "center",
   },
   pillsContainer: {
@@ -361,18 +362,18 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.sm,
     paddingHorizontal: SPACING.md,
     borderRadius: BORDER_RADIUS.xl,
-    backgroundColor: COLORS.mediumGray,
+    backgroundColor: colors.mediumGray,
   },
   pillSelected: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.primary,
   },
   pillText: {
     fontSize: FONT_SIZES.sm,
     fontWeight: "600",
-    color: COLORS.lightGray,
+    color: colors.lightGray,
   },
   pillTextSelected: {
-    color: COLORS.background,
+    color: colors.background,
   },
   sessionList: {
     flex: 1,
@@ -380,7 +381,7 @@ const styles = StyleSheet.create({
   summaryCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.mediumGray,
+    backgroundColor: colors.mediumGray,
     borderRadius: BORDER_RADIUS.md,
     padding: SPACING.md,
     marginBottom: SPACING.md,
@@ -392,17 +393,17 @@ const styles = StyleSheet.create({
   summaryTotalValue: {
     fontSize: FONT_SIZES.xl,
     fontWeight: "700",
-    color: COLORS.primary,
+    color: colors.primary,
   },
   summaryTotalLabel: {
     fontSize: FONT_SIZES.xs,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     marginTop: 2,
   },
   summaryDivider: {
     width: 1,
     alignSelf: "stretch",
-    backgroundColor: COLORS.darkGray,
+    backgroundColor: colors.darkGray,
     marginHorizontal: SPACING.md,
   },
   summaryDisciplines: {
@@ -421,22 +422,21 @@ const styles = StyleSheet.create({
   },
   disciplineLabel: {
     fontSize: FONT_SIZES.sm,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     flex: 1,
   },
   disciplineValue: {
     fontSize: FONT_SIZES.sm,
     fontWeight: "600",
-    color: COLORS.white,
+    color: colors.white,
   },
-  // Modal styles
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.7)",
     justifyContent: "flex-end",
   },
   modalContent: {
-    backgroundColor: COLORS.background,
+    backgroundColor: colors.background,
     borderTopLeftRadius: BORDER_RADIUS.xl,
     borderTopRightRadius: BORDER_RADIUS.xl,
     padding: SPACING.lg,
@@ -451,15 +451,15 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: FONT_SIZES.lg,
     fontWeight: "bold",
-    color: COLORS.white,
+    color: colors.white,
   },
   modalClose: {
     fontSize: 18,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     padding: SPACING.sm,
   },
   workoutSection: {
-    backgroundColor: COLORS.mediumGray,
+    backgroundColor: colors.mediumGray,
     borderRadius: BORDER_RADIUS.md,
     padding: SPACING.md,
     marginBottom: SPACING.sm,
@@ -467,16 +467,16 @@ const styles = StyleSheet.create({
   workoutSectionTitle: {
     fontSize: FONT_SIZES.sm,
     fontWeight: "700",
-    color: COLORS.primary,
+    color: colors.primary,
     marginBottom: SPACING.xs,
   },
   workoutSectionContent: {
     fontSize: FONT_SIZES.sm,
-    color: COLORS.white,
+    color: colors.white,
     lineHeight: 22,
   },
   zoneRangesCard: {
-    backgroundColor: COLORS.mediumGray,
+    backgroundColor: colors.mediumGray,
     borderRadius: BORDER_RADIUS.md,
     padding: SPACING.md,
     marginBottom: SPACING.sm,
@@ -484,7 +484,7 @@ const styles = StyleSheet.create({
   zoneRangesTitle: {
     fontSize: FONT_SIZES.sm,
     fontWeight: "700",
-    color: COLORS.primary,
+    color: colors.primary,
     marginBottom: SPACING.sm,
   },
   zoneRangesGrid: {
@@ -493,42 +493,42 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   zoneRangeItem: {
-    backgroundColor: COLORS.darkGray,
+    backgroundColor: colors.darkGray,
     borderRadius: BORDER_RADIUS.sm,
     padding: SPACING.sm,
     minWidth: "45%",
   },
   zoneRangeKey: {
     fontSize: FONT_SIZES.xs,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     marginBottom: 2,
   },
   zoneRangeValue: {
     fontSize: FONT_SIZES.sm,
     fontWeight: "600",
-    color: COLORS.white,
+    color: colors.white,
   },
   coachingCard: {
-    backgroundColor: COLORS.mediumGray,
+    backgroundColor: colors.mediumGray,
     borderRadius: BORDER_RADIUS.md,
     padding: SPACING.md,
     marginBottom: SPACING.lg,
     borderLeftWidth: 3,
-    borderLeftColor: COLORS.primary,
+    borderLeftColor: colors.primary,
   },
   coachingLabel: {
     fontSize: FONT_SIZES.xs,
-    color: COLORS.primary,
+    color: colors.primary,
     fontWeight: "700",
     marginBottom: SPACING.xs,
   },
   coachingText: {
     fontSize: FONT_SIZES.sm,
-    color: COLORS.white,
+    color: colors.white,
     lineHeight: 22,
   },
   expandError: {
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     textAlign: "center",
     marginTop: SPACING.xl,
   },

@@ -2,7 +2,8 @@ import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Card } from "./Card";
 import { SessionCard } from "./SessionCard";
-import { COLORS, SPACING, FONT_SIZES } from "../constants/theme";
+import { ThemeColors, SPACING, FONT_SIZES } from "../constants/theme";
+import { useTheme } from "../context/ThemeContext";
 
 interface Session {
   id: string;
@@ -20,6 +21,8 @@ interface DayCardProps {
 }
 
 export const DayCard: React.FC<DayCardProps> = ({ day, sessions, onPressSession }) => {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   return (
     <Card style={styles.card}>
       <Text style={styles.day}>{day}</Text>
@@ -40,7 +43,7 @@ export const DayCard: React.FC<DayCardProps> = ({ day, sessions, onPressSession 
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   card: {
     marginBottom: SPACING.sm,
     gap: SPACING.md,
@@ -48,10 +51,10 @@ const styles = StyleSheet.create({
   day: {
     fontSize: FONT_SIZES.md,
     fontWeight: "700",
-    color: COLORS.white,
+    color: colors.white,
   },
   divider: {
     height: 1,
-    backgroundColor: COLORS.darkGray,
+    backgroundColor: colors.darkGray,
   },
 });

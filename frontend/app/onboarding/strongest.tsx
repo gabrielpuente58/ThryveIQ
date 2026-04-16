@@ -5,7 +5,8 @@ import { Button } from "../../components/Button";
 import { ProgressBar } from "../../components/ProgressBar";
 import { OptionCard } from "../../components/OptionCard";
 import { useOnboarding } from "../../context/OnboardingContext";
-import { COLORS, SPACING, FONT_SIZES } from "../../constants/theme";
+import { ThemeColors, SPACING, FONT_SIZES } from "../../constants/theme";
+import { useTheme } from "../../context/ThemeContext";
 
 const OPTIONS = [
   { value: "swim" as const, label: "Swim", description: "Swimming is my strongest discipline" },
@@ -16,6 +17,8 @@ const OPTIONS = [
 export default function StrongestScreen() {
   const router = useRouter();
   const { data, update } = useOnboarding();
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
 
   return (
     <Screen style={styles.container}>
@@ -47,7 +50,7 @@ export default function StrongestScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     justifyContent: "space-between",
   },
@@ -59,11 +62,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FONT_SIZES.xxl,
     fontWeight: "bold",
-    color: COLORS.white,
+    color: colors.white,
   },
   subtitle: {
     fontSize: FONT_SIZES.md,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     lineHeight: 22,
   },
   options: {

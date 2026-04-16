@@ -3,10 +3,13 @@ import { View, Text, StyleSheet, Alert, TouchableOpacity } from "react-native";
 import { Screen } from "../components/Screen";
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
-import { COLORS, SPACING, FONT_SIZES } from "../constants/theme";
+import { ThemeColors, SPACING, FONT_SIZES } from "../constants/theme";
 import { supabase } from "../lib/supabase";
+import { useTheme } from "../context/ThemeContext";
 
 export default function LoginScreen() {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
@@ -72,7 +75,7 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     justifyContent: "center",
   },
@@ -82,12 +85,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FONT_SIZES.xxl + 8,
     fontWeight: "bold",
-    color: COLORS.primary,
+    color: colors.primary,
     textAlign: "center",
   },
   subtitle: {
     fontSize: FONT_SIZES.lg,
-    color: COLORS.white,
+    color: colors.white,
     textAlign: "center",
     marginBottom: SPACING.sm,
   },
@@ -96,11 +99,11 @@ const styles = StyleSheet.create({
   },
   toggleText: {
     fontSize: FONT_SIZES.sm,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     textAlign: "center",
   },
   toggleLink: {
-    color: COLORS.primary,
+    color: colors.primary,
     fontWeight: "600",
   },
 });

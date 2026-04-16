@@ -1,18 +1,19 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { COLORS } from "../../constants/theme";
+import { useTheme } from "../../context/ThemeContext";
 
 export default function TabsLayout() {
+  const { colors } = useTheme();
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: COLORS.darkGray,
-          borderTopColor: COLORS.mediumGray,
+          backgroundColor: colors.darkGray,
+          borderTopColor: colors.mediumGray,
         },
-        tabBarActiveTintColor: COLORS.primary,
-        tabBarInactiveTintColor: COLORS.lightGray,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.lightGray,
       }}
     >
       <Tabs.Screen
@@ -38,7 +39,7 @@ export default function TabsLayout() {
         options={{
           title: "Progress",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="bar-chart-outline" size={size} color={color} />
+            <Ionicons name="trending-up-outline" size={size} color={color} />
           ),
         }}
       />

@@ -13,9 +13,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "../../components/Screen";
 import { Input } from "../../components/Input";
 import { Card } from "../../components/Card";
-import { COLORS, SPACING, BORDER_RADIUS, FONT_SIZES } from "../../constants/theme";
+import { ThemeColors, SPACING, BORDER_RADIUS, FONT_SIZES } from "../../constants/theme";
 import { API_URL } from "../../constants/api";
 import { useAuth } from "../../context/AuthContext";
+import { useTheme } from "../../context/ThemeContext";
 
 interface Message {
   id: string;
@@ -26,6 +27,8 @@ interface Message {
 
 export default function ChatScreen() {
   const { user } = useAuth();
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
@@ -155,9 +158,9 @@ export default function ChatScreen() {
               activeOpacity={0.7}
             >
               {isLoading ? (
-                <ActivityIndicator color={COLORS.background} size="small" />
+                <ActivityIndicator color={colors.background} size="small" />
               ) : (
-                <Ionicons name="send" size={20} color={COLORS.background} />
+                <Ionicons name="send" size={20} color={colors.background} />
               )}
             </TouchableOpacity>
           </View>
@@ -167,7 +170,7 @@ export default function ChatScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   screen: {
     padding: 0,
   },
@@ -175,17 +178,17 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
     paddingTop: SPACING.lg,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.mediumGray,
+    borderBottomColor: colors.mediumGray,
   },
   title: {
     fontSize: FONT_SIZES.xxl,
     fontWeight: "bold",
-    color: COLORS.white,
+    color: colors.white,
     marginBottom: SPACING.xs,
   },
   subtitle: {
     fontSize: FONT_SIZES.sm,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
   },
   messageList: {
     flex: 1,
@@ -208,24 +211,24 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
   },
   userBubble: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.primary,
   },
   aiBubble: {
-    backgroundColor: COLORS.mediumGray,
+    backgroundColor: colors.mediumGray,
   },
   messageText: {
     fontSize: FONT_SIZES.md,
-    color: COLORS.white,
+    color: colors.white,
     lineHeight: 22,
   },
   userMessageText: {
-    color: COLORS.background,
+    color: colors.background,
   },
   inputContainer: {
     padding: SPACING.md,
     borderTopWidth: 1,
-    borderTopColor: COLORS.mediumGray,
-    backgroundColor: COLORS.background,
+    borderTopColor: colors.mediumGray,
+    backgroundColor: colors.background,
   },
   inputRow: {
     flexDirection: "row",
@@ -242,7 +245,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 2,

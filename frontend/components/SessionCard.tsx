@@ -1,7 +1,8 @@
 import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { Card } from "./Card";
-import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from "../constants/theme";
+import { ThemeColors, SPACING, FONT_SIZES, BORDER_RADIUS } from "../constants/theme";
+import { useTheme } from "../context/ThemeContext";
 
 const SPORT_COLORS: Record<string, string> = {
   swim: "#3B82F6",
@@ -32,7 +33,9 @@ export const SessionCard: React.FC<SessionCardProps> = ({
   description,
   onPress,
 }) => {
-  const sportColor = SPORT_COLORS[sport] ?? COLORS.primary;
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
+  const sportColor = SPORT_COLORS[sport] ?? colors.primary;
 
   const inner = (
     <View style={styles.session}>
@@ -67,7 +70,7 @@ export const SessionCard: React.FC<SessionCardProps> = ({
   return inner;
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   session: {
     gap: SPACING.sm,
   },
@@ -89,26 +92,26 @@ const styles = StyleSheet.create({
   sportText: {
     fontSize: FONT_SIZES.xs,
     fontWeight: "700",
-    color: COLORS.white,
+    color: "#FFFFFF",
   },
   duration: {
     fontSize: FONT_SIZES.sm,
     fontWeight: "600",
-    color: COLORS.white,
+    color: colors.white,
   },
   zoneBadge: {
-    backgroundColor: COLORS.darkGray,
+    backgroundColor: colors.darkGray,
     paddingVertical: 2,
     paddingHorizontal: SPACING.sm,
     borderRadius: BORDER_RADIUS.sm,
   },
   zoneText: {
     fontSize: FONT_SIZES.xs,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
   },
   description: {
     fontSize: FONT_SIZES.sm,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     lineHeight: 20,
   },
   expandHint: {
@@ -117,7 +120,7 @@ const styles = StyleSheet.create({
   },
   expandHintText: {
     fontSize: FONT_SIZES.xs,
-    color: COLORS.primary,
+    color: colors.primary,
     opacity: 0.8,
   },
 });

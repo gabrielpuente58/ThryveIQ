@@ -6,7 +6,8 @@ import { Screen } from "../../components/Screen";
 import { Button } from "../../components/Button";
 import { ProgressBar } from "../../components/ProgressBar";
 import { useOnboarding } from "../../context/OnboardingContext";
-import { COLORS, SPACING, FONT_SIZES } from "../../constants/theme";
+import { ThemeColors, SPACING, FONT_SIZES } from "../../constants/theme";
+import { useTheme } from "../../context/ThemeContext";
 
 const MIN_DATE = new Date();
 MIN_DATE.setMonth(MIN_DATE.getMonth() + 1);
@@ -14,6 +15,8 @@ MIN_DATE.setMonth(MIN_DATE.getMonth() + 1);
 export default function RaceDateScreen() {
   const router = useRouter();
   const { data, update } = useOnboarding();
+  const { colors, isDark } = useTheme();
+  const styles = makeStyles(colors);
 
   const initialDate = data.race_date ? new Date(data.race_date) : MIN_DATE;
   const [date, setDate] = useState(initialDate);
@@ -37,8 +40,8 @@ export default function RaceDateScreen() {
           display={Platform.OS === "ios" ? "inline" : "default"}
           minimumDate={MIN_DATE}
           onChange={handleChange}
-          themeVariant="dark"
-          accentColor={COLORS.primary}
+          themeVariant={isDark ? "dark" : "light"}
+          accentColor={colors.primary}
           style={styles.picker}
         />
       </View>
@@ -54,7 +57,7 @@ export default function RaceDateScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     justifyContent: "space-between",
   },
@@ -66,11 +69,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FONT_SIZES.xxl,
     fontWeight: "bold",
-    color: COLORS.white,
+    color: colors.white,
   },
   subtitle: {
     fontSize: FONT_SIZES.md,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     lineHeight: 22,
   },
   picker: {

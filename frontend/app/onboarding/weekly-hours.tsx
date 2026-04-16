@@ -15,13 +15,16 @@ import { Screen } from "../../components/Screen";
 import { Button } from "../../components/Button";
 import { ProgressBar } from "../../components/ProgressBar";
 import { useOnboarding } from "../../context/OnboardingContext";
-import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from "../../constants/theme";
+import { ThemeColors, SPACING, FONT_SIZES, BORDER_RADIUS } from "../../constants/theme";
+import { useTheme } from "../../context/ThemeContext";
 
 const INPUT_ACCESSORY_ID = "weekly-hours-done";
 
 export default function WeeklyHoursScreen() {
   const router = useRouter();
   const { data, update } = useOnboarding();
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
 
   const handleChange = (text: string) => {
     const cleaned = text.replace(/[^0-9.]/g, "");
@@ -45,7 +48,7 @@ export default function WeeklyHoursScreen() {
             <TextInput
               style={styles.input}
               placeholder="e.g. 8"
-              placeholderTextColor={COLORS.lightGray}
+              placeholderTextColor={colors.lightGray}
               keyboardType="decimal-pad"
               inputAccessoryViewID={Platform.OS === "ios" ? INPUT_ACCESSORY_ID : undefined}
               value={data.weekly_hours !== undefined ? String(data.weekly_hours) : ""}
@@ -76,7 +79,7 @@ export default function WeeklyHoursScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     justifyContent: "space-between",
   },
@@ -88,11 +91,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FONT_SIZES.xxl,
     fontWeight: "bold",
-    color: COLORS.white,
+    color: colors.white,
   },
   subtitle: {
     fontSize: FONT_SIZES.md,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     lineHeight: 22,
   },
   inputRow: {
@@ -101,24 +104,24 @@ const styles = StyleSheet.create({
     gap: SPACING.md,
   },
   input: {
-    backgroundColor: COLORS.mediumGray,
+    backgroundColor: colors.mediumGray,
     borderRadius: BORDER_RADIUS.md,
     padding: SPACING.md,
     fontSize: FONT_SIZES.xl,
-    color: COLORS.white,
+    color: colors.white,
     minWidth: 100,
     textAlign: "center",
   },
   unit: {
     fontSize: FONT_SIZES.md,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
   },
   buttons: {
     flexDirection: "row",
     gap: SPACING.md,
   },
   accessory: {
-    backgroundColor: COLORS.mediumGray,
+    backgroundColor: colors.mediumGray,
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm,
     alignItems: "flex-end",
@@ -126,7 +129,7 @@ const styles = StyleSheet.create({
   doneButton: {
     fontSize: FONT_SIZES.md,
     fontWeight: "600",
-    color: COLORS.primary,
+    color: colors.primary,
     paddingHorizontal: SPACING.sm,
     paddingVertical: SPACING.xs,
   },

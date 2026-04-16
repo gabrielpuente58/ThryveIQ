@@ -1,6 +1,7 @@
 import React from "react";
 import { View, StyleSheet } from "react-native";
-import { COLORS, BORDER_RADIUS } from "../constants/theme";
+import { ThemeColors, BORDER_RADIUS } from "../constants/theme";
+import { useTheme } from "../context/ThemeContext";
 
 interface ProgressBarProps {
   current: number;
@@ -8,6 +9,8 @@ interface ProgressBarProps {
 }
 
 export const ProgressBar: React.FC<ProgressBarProps> = ({ current, total }) => {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const progress = current / total;
 
   return (
@@ -17,16 +20,16 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({ current, total }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   track: {
     height: 4,
-    backgroundColor: COLORS.mediumGray,
+    backgroundColor: colors.mediumGray,
     borderRadius: BORDER_RADIUS.sm,
     overflow: "hidden",
   },
   fill: {
     height: "100%",
-    backgroundColor: COLORS.primary,
+    backgroundColor: colors.primary,
     borderRadius: BORDER_RADIUS.sm,
   },
 });

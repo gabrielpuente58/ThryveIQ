@@ -1,6 +1,7 @@
 import React from "react";
 import { TouchableOpacity, Text, StyleSheet } from "react-native";
-import { COLORS, SPACING, BORDER_RADIUS, FONT_SIZES } from "../constants/theme";
+import { ThemeColors, SPACING, BORDER_RADIUS, FONT_SIZES } from "../constants/theme";
+import { useTheme } from "../context/ThemeContext";
 
 interface OptionCardProps {
   label: string;
@@ -15,6 +16,8 @@ export const OptionCard: React.FC<OptionCardProps> = ({
   selected,
   onPress,
 }) => {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   return (
     <TouchableOpacity
       style={[styles.card, selected && styles.selectedCard]}
@@ -33,32 +36,32 @@ export const OptionCard: React.FC<OptionCardProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   card: {
-    backgroundColor: COLORS.mediumGray,
+    backgroundColor: colors.mediumGray,
     borderRadius: BORDER_RADIUS.md,
     padding: SPACING.lg,
     borderWidth: 2,
     borderColor: "transparent",
   },
   selectedCard: {
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.darkGray,
+    borderColor: colors.primary,
+    backgroundColor: colors.darkGray,
   },
   label: {
     fontSize: FONT_SIZES.lg,
     fontWeight: "600",
-    color: COLORS.white,
+    color: colors.white,
   },
   selectedLabel: {
-    color: COLORS.primary,
+    color: colors.primary,
   },
   description: {
     fontSize: FONT_SIZES.sm,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     marginTop: SPACING.xs,
   },
   selectedDescription: {
-    color: COLORS.lightGray,
+    color: colors.lightGray,
   },
 });

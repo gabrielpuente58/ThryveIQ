@@ -7,8 +7,9 @@ import { ProgressBar } from "../../components/ProgressBar";
 import { OptionCard } from "../../components/OptionCard";
 import { useOnboarding } from "../../context/OnboardingContext";
 import { useAuth } from "../../context/AuthContext";
-import { COLORS, SPACING, FONT_SIZES } from "../../constants/theme";
+import { ThemeColors, SPACING, FONT_SIZES } from "../../constants/theme";
 import { API_URL } from "../../constants/api";
+import { useTheme } from "../../context/ThemeContext";
 
 const OPTIONS = [
   { value: "swim" as const, label: "Swim", description: "Swimming is my weakest discipline" },
@@ -20,6 +21,8 @@ export default function WeakestScreen() {
   const router = useRouter();
   const { data, update, testMode } = useOnboarding();
   const { user } = useAuth();
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
@@ -93,7 +96,7 @@ export default function WeakestScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     justifyContent: "space-between",
   },
@@ -105,11 +108,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FONT_SIZES.xxl,
     fontWeight: "bold",
-    color: COLORS.white,
+    color: colors.white,
   },
   subtitle: {
     fontSize: FONT_SIZES.md,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     lineHeight: 22,
   },
   options: {

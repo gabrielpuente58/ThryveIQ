@@ -6,7 +6,8 @@ import { Button } from "../../components/Button";
 import { ProgressBar } from "../../components/ProgressBar";
 import { OptionCard } from "../../components/OptionCard";
 import { useOnboarding } from "../../context/OnboardingContext";
-import { COLORS, SPACING, FONT_SIZES } from "../../constants/theme";
+import { ThemeColors, SPACING, FONT_SIZES } from "../../constants/theme";
+import { useTheme } from "../../context/ThemeContext";
 
 const OPTIONS = [
   { value: "first_timer" as const, label: "First Timer", description: "This is my first Ironman 70.3" },
@@ -18,6 +19,8 @@ export default function GoalScreen() {
   const router = useRouter();
   const { test } = useLocalSearchParams<{ test?: string }>();
   const { data, update, setTestMode } = useOnboarding();
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
 
   useEffect(() => {
     if (test === "true") setTestMode(true);
@@ -50,7 +53,7 @@ export default function GoalScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     justifyContent: "space-between",
   },
@@ -62,11 +65,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FONT_SIZES.xxl,
     fontWeight: "bold",
-    color: COLORS.white,
+    color: colors.white,
   },
   subtitle: {
     fontSize: FONT_SIZES.md,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     lineHeight: 22,
   },
   options: {

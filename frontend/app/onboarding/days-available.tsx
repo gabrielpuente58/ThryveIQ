@@ -4,13 +4,16 @@ import { Screen } from "../../components/Screen";
 import { Button } from "../../components/Button";
 import { ProgressBar } from "../../components/ProgressBar";
 import { useOnboarding } from "../../context/OnboardingContext";
-import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from "../../constants/theme";
+import { ThemeColors, SPACING, FONT_SIZES, BORDER_RADIUS } from "../../constants/theme";
+import { useTheme } from "../../context/ThemeContext";
 
 const DAYS = [1, 2, 3, 4, 5, 6, 7];
 
 export default function DaysAvailableScreen() {
   const router = useRouter();
   const { data, update } = useOnboarding();
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
 
   return (
     <Screen style={styles.container}>
@@ -46,7 +49,7 @@ export default function DaysAvailableScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     justifyContent: "space-between",
   },
@@ -58,11 +61,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FONT_SIZES.xxl,
     fontWeight: "bold",
-    color: COLORS.white,
+    color: colors.white,
   },
   subtitle: {
     fontSize: FONT_SIZES.md,
-    color: COLORS.lightGray,
+    color: colors.lightGray,
     lineHeight: 22,
   },
   daysRow: {
@@ -74,22 +77,22 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: BORDER_RADIUS.md,
-    backgroundColor: COLORS.mediumGray,
+    backgroundColor: colors.mediumGray,
     alignItems: "center",
     justifyContent: "center",
   },
   daySelected: {
     borderWidth: 2,
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.darkGray,
+    borderColor: colors.primary,
+    backgroundColor: colors.darkGray,
   },
   dayText: {
     fontSize: FONT_SIZES.lg,
-    color: COLORS.white,
+    color: colors.white,
     fontWeight: "600",
   },
   dayTextSelected: {
-    color: COLORS.primary,
+    color: colors.primary,
   },
   buttons: {
     flexDirection: "row",

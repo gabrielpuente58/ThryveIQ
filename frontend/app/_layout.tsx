@@ -3,12 +3,14 @@ import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AuthProvider, useAuth } from "../context/AuthContext";
+import { ThemeProvider, useTheme } from "../context/ThemeContext";
 import { supabase } from "../lib/supabase";
-import { COLORS } from "../constants/theme";
 
 function RouteGuard() {
   const { session, loading } = useAuth();
+  const { colors } = useTheme();
   const router = useRouter();
   const segments = useSegments();
 
@@ -24,10 +26,8 @@ function RouteGuard() {
       return;
     }
 
-    // Allow manual navigation to onboarding (e.g. test button from profile)
     if (inOnboarding) return;
 
-    // Logged in — check profile via Supabase directly (works even when backend is down)
     const checkProfile = async () => {
       try {
         const { data, error } = await supabase
@@ -37,7 +37,6 @@ function RouteGuard() {
           .limit(1);
 
         if (error) {
-          // RLS or network issue — can't determine profile status, go to tabs
           if (!inTabs) router.replace("/(tabs)/plan");
           return;
         }
@@ -47,7 +46,7 @@ function RouteGuard() {
         } else {
           router.replace("/onboarding/goal");
         }
-      } catch (e) {
+      } catch {
         if (!inTabs) router.replace("/(tabs)/plan");
       }
     };
@@ -57,8 +56,8 @@ function RouteGuard() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: COLORS.background, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+      <View style={{ flex: 1, backgroundColor: colors.background, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
@@ -66,19 +65,32 @@ function RouteGuard() {
   return null;
 }
 
+function AppContent() {
+  const { colors, isDark } = useTheme();
+  return (
+    <>
+      <RouteGuard />
+      <StatusBar style={isDark ? "light" : "dark"} />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      />
+    </>
+  );
+}
+
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-      <AuthProvider>
-        <RouteGuard />
-        <StatusBar style="light" />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: "#131321" },
-          }}
-        />
-      </AuthProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <AppContent />
+          </AuthProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

@@ -3,27 +3,29 @@ import { TouchableOpacity, View, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { OnboardingProvider, useOnboarding } from "../../context/OnboardingContext";
-import { COLORS, SPACING } from "../../constants/theme";
+import { useTheme } from "../../context/ThemeContext";
+import { SPACING } from "../../constants/theme";
 
 function OnboardingStack() {
   const { testMode } = useOnboarding();
+  const { colors } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom }]}>
+    <View style={[styles.container, { paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
       {testMode && (
         <TouchableOpacity
-          style={[styles.exitButton, { top: insets.top + SPACING.sm }]}
+          style={[styles.exitButton, { top: insets.top + SPACING.sm, backgroundColor: colors.mediumGray }]}
           onPress={() => router.replace("/(tabs)/plan")}
         >
-          <Ionicons name="close" size={22} color={COLORS.white} />
+          <Ionicons name="close" size={22} color={colors.white} />
         </TouchableOpacity>
       )}
       <Stack
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: "#131321" },
+          contentStyle: { backgroundColor: colors.background },
           animation: "slide_from_right",
         }}
       />
@@ -42,7 +44,6 @@ export default function OnboardingLayout() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#131321",
   },
   exitButton: {
     position: "absolute",
@@ -51,7 +52,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: COLORS.mediumGray,
     alignItems: "center",
     justifyContent: "center",
   },

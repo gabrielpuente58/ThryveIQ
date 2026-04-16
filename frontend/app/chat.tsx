@@ -13,7 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "../components/Screen";
 import { Input } from "../components/Input";
 import { Card } from "../components/Card";
-import { COLORS, SPACING, BORDER_RADIUS, FONT_SIZES } from "../constants/theme";
+import { COLORS, ThemeColors, SPACING, BORDER_RADIUS, FONT_SIZES } from "../constants/theme";
 import { API_URL } from "../constants/api";
 
 interface Message {
