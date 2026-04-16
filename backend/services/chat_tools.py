@@ -1,5 +1,6 @@
 import json
 from db.supabase import supabase
+from services.strava import get_athlete_activities
 
 
 def get_current_plan(user_id: str) -> str:
@@ -69,10 +70,37 @@ def get_athlete_profile(user_id: str) -> str:
     )
 
 
+async def get_strava_activities(user_id: str, limit: int = 10) -> str:
+    """Fetch recent Strava activities and format as readable text."""
+    activities = await get_athlete_activities(user_id, limit)
+    if not activities:
+        return "No Strava activities found. The athlete may not have connected Strava."
+
+    lines: list[str] = []
+    for a in activities:
+        sport = a.get("sport_type") or a.get("type", "Unknown")
+        name = a.get("name", "Untitled")
+        date_str = a.get("start_date_local", "")[:10]  # YYYY-MM-DD
+        dist_m = a.get("distance", 0)
+        dist_mi = dist_m / 1609.34
+        moving_s = a.get("moving_time", 0)
+        moving_min = moving_s // 60
+        elev_m = a.get("total_elevation_gain", 0)
+        elev_ft = elev_m * 3.28084
+        avg_hr = a.get("average_heartrate")
+        hr_str = f", avg HR {int(avg_hr)}bpm" if avg_hr else ""
+        lines.append(
+            f"- {date_str} | {sport}: {name} | {dist_mi:.1f}mi in {moving_min}min{hr_str}, elev gain {elev_ft:.0f}ft"
+        )
+
+    return f"Recent Strava activities ({len(activities)}):\n" + "\n".join(lines)
+
+
 TOOLS = {
     "get_current_plan": get_current_plan,
     "get_user_zones": get_user_zones,
     "get_athlete_profile": get_athlete_profile,
+    "get_strava_activities": get_strava_activities,
 }
 
 TOOL_DESCRIPTIONS = """Available tools (use EXACTLY these names when calling a tool):
@@ -80,6 +108,7 @@ TOOL_DESCRIPTIONS = """Available tools (use EXACTLY these names when calling a t
 1. get_current_plan - Call this when the user asks about their training plan, upcoming workouts, weekly schedule, or what they should do next.
 2. get_user_zones - Call this when the user asks about their heart rate zones, pace zones, power zones, or training intensity targets.
 3. get_athlete_profile - Call this when you need the athlete's profile details like their goal, experience level, availability, or disciplines.
+4. get_strava_activities - Call this when the user asks about recent workouts, recent runs/rides/swims, Strava activities, past training, how much they've been training, or their training history.
 
 To use a tool, respond with JSON: {"tool": "tool_name"}
 Only call ONE tool at a time. If no tool is needed, respond normally."""

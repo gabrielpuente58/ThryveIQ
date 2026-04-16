@@ -1,5 +1,7 @@
 import os
 import time
+from collections import defaultdict
+from datetime import datetime
 import httpx
 from dotenv import load_dotenv
 from db.strava import get_tokens, upsert_tokens
@@ -74,3 +76,121 @@ async def get_athlete_activities(user_id: str, limit: int = 10) -> list[dict]:
         )
         res.raise_for_status()
         return res.json()
+
+
+# Maps Strava sport_type values to internal discipline keys
+_SPORT_MAP: dict[str, str] = {
+    "Swim": "swim",
+    "Ride": "bike",
+    "VirtualRide": "bike",
+    "Run": "run",
+    "VirtualRun": "run",
+}
+
+
+async def get_insights(user_id: str) -> dict:
+    """Aggregate last ~8 weeks of Strava activities into weekly volume stats."""
+    from models.strava import StravaInsightsResponse, WeeklyVolume, SportBreakdown
+
+    tokens = get_tokens(user_id)
+    if not tokens:
+        return StravaInsightsResponse(
+            connected=False,
+            weekly_volumes=[],
+            sport_breakdown=SportBreakdown(swim_pct=0.0, bike_pct=0.0, run_pct=0.0),
+            total_activities=0,
+        ).model_dump()
+
+    activities = await get_athlete_activities(user_id, limit=80)
+
+    # week_key -> discipline -> {"hours": float, "miles": float, "moving_seconds": float}
+    week_data: dict[str, dict[str, dict[str, float]]] = defaultdict(
+        lambda: {
+            "swim": {"hours": 0.0, "miles": 0.0, "moving_seconds": 0.0},
+            "bike": {"hours": 0.0, "miles": 0.0, "moving_seconds": 0.0},
+            "run": {"hours": 0.0, "miles": 0.0, "moving_seconds": 0.0},
+        }
+    )
+
+    total_activities = 0
+    for act in activities:
+        sport_type = act.get("sport_type") or act.get("type", "")
+        discipline = _SPORT_MAP.get(sport_type)
+        if discipline is None:
+            continue
+
+        date_str = act.get("start_date_local", "")[:10]
+        if not date_str:
+            continue
+
+        try:
+            dt = datetime.fromisoformat(date_str)
+        except ValueError:
+            continue
+
+        # ISO week key: "YYYY-Www"
+        week_key = dt.strftime("%G-W%V")
+
+        dist_miles = act.get("distance", 0.0) / 1609.34
+        moving_seconds = float(act.get("moving_time", 0))
+        moving_hours = moving_seconds / 3600.0
+
+        week_data[week_key][discipline]["hours"] += moving_hours
+        week_data[week_key][discipline]["miles"] += dist_miles
+        week_data[week_key][discipline]["moving_seconds"] += moving_seconds
+        total_activities += 1
+
+    # Sort by ISO week and keep last 8 weeks that have data
+    sorted_weeks = sorted(week_data.keys())[-8:]
+
+    weekly_volumes: list[WeeklyVolume] = []
+    for wk in sorted_weeks:
+        disciplines = week_data[wk]
+        # Build a human-readable label from the ISO week (Monday of the week)
+        # "%G-W%V-%u" with weekday=1 gives Monday
+        monday = datetime.strptime(f"{wk}-1", "%G-W%V-%u")
+        label = monday.strftime("%b %-d")  # e.g. "Apr 7"
+
+        swim_h = disciplines["swim"]["hours"]
+        bike_h = disciplines["bike"]["hours"]
+        run_h = disciplines["run"]["hours"]
+        total_h = swim_h + bike_h + run_h
+
+        swim_mi = disciplines["swim"]["miles"]
+        bike_mi = disciplines["bike"]["miles"]
+        run_mi = disciplines["run"]["miles"]
+        total_mi = swim_mi + bike_mi + run_mi
+
+        weekly_volumes.append(
+            WeeklyVolume(
+                week_label=label,
+                swim_hours=round(swim_h, 2),
+                bike_hours=round(bike_h, 2),
+                run_hours=round(run_h, 2),
+                total_hours=round(total_h, 2),
+                swim_miles=round(swim_mi, 2),
+                bike_miles=round(bike_mi, 2),
+                run_miles=round(run_mi, 2),
+                total_miles=round(total_mi, 2),
+            )
+        )
+
+    # Sport breakdown by total moving seconds
+    total_swim_s = sum(week_data[wk]["swim"]["moving_seconds"] for wk in week_data)
+    total_bike_s = sum(week_data[wk]["bike"]["moving_seconds"] for wk in week_data)
+    total_run_s = sum(week_data[wk]["run"]["moving_seconds"] for wk in week_data)
+    grand_total_s = total_swim_s + total_bike_s + total_run_s
+
+    if grand_total_s > 0:
+        swim_pct = round(total_swim_s / grand_total_s * 100, 1)
+        bike_pct = round(total_bike_s / grand_total_s * 100, 1)
+        run_pct = round(total_run_s / grand_total_s * 100, 1)
+    else:
+        swim_pct = bike_pct = run_pct = 0.0
+
+    return StravaInsightsResponse(
+        connected=True,
+        weekly_volumes=weekly_volumes,
+        sport_breakdown=SportBreakdown(swim_pct=swim_pct, bike_pct=bike_pct, run_pct=run_pct),
+        total_activities=total_activities,
+    ).model_dump()

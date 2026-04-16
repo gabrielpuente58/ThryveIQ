@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
-from models.strava import StravaExchangeRequest, StravaStatusResponse
-from services.strava import exchange_code
+from models.strava import StravaExchangeRequest, StravaStatusResponse, StravaInsightsResponse
+from services.strava import exchange_code, get_insights
 from db.strava import upsert_tokens, get_tokens, delete_tokens
 
 router = APIRouter(prefix="/strava", tags=["strava"])
@@ -50,3 +50,9 @@ async def disconnect(user_id: str):
     """Remove a user's Strava connection."""
     delete_tokens(user_id)
     return {"success": True}
+
+
+@router.get("/insights", response_model=StravaInsightsResponse)
+async def insights(user_id: str):
+    """Return aggregated weekly volume stats from Strava for the last 8 weeks."""
+    return await get_insights(user_id)

@@ -1,3 +1,4 @@
+import asyncio
 import re
 from fastapi import APIRouter
 from models.chat import ChatRequest, ChatResponse
@@ -28,6 +29,11 @@ TOOL_TRIGGERS = {
         "profile", "my goal", "race date", "experience", "availability",
         "strongest", "weakest", "background", "how many hours", "how many days",
     ],
+    "get_strava_activities": [
+        "recent", "strava", "activity", "activities", "last run", "last ride",
+        "last swim", "training history", "how much have i", "this week i trained",
+        "past workout", "what did i do", "history",
+    ],
 }
 
 
@@ -51,6 +57,8 @@ async def chat_message(request: ChatRequest):
     for tool_name in needed_tools:
         tool_fn = TOOLS[tool_name]
         result = tool_fn(request.user_id)
+        if asyncio.iscoroutine(result):
+            result = await result
         context_parts.append(f"[{tool_name}]:\n{result}")
         tools_used.append(tool_name)
 
