@@ -557,7 +557,7 @@ export default function ProfileScreen() {
           Building your training plan…
         </Text>
         <Text style={[{ fontSize: FONT_SIZES.sm, color: colors.lightGray, marginTop: SPACING.sm, textAlign: "center" }]}>
-          This usually takes 30–60 seconds
+          This takes a few minutes — building week by week
         </Text>
       </Screen>
     );
