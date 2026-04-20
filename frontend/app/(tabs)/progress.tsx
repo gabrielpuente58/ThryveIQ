@@ -90,10 +90,14 @@ function Polyline({
   pts,
   color,
   strokeWidth = 2.5,
+  selectedIdx,
+  onDotPress,
 }: {
   pts: { x: number; y: number }[];
   color: string;
   strokeWidth?: number;
+  selectedIdx: number | null;
+  onDotPress: (index: number) => void;
 }) {
   const elements: React.ReactElement[] = [];
 
@@ -125,20 +129,35 @@ function Polyline({
   }
 
   pts.forEach((pt, i) => {
-    const r = strokeWidth + 0.5;
+    const isSelected = selectedIdx === i;
+    const r = isSelected ? strokeWidth + 3 : strokeWidth + 0.5;
+    const hitR = 16; // large transparent hit area
     elements.push(
-      <View
+      <TouchableOpacity
         key={`d${i}`}
+        onPress={() => onDotPress(i)}
         style={{
           position: "absolute",
-          left: pt.x - r,
-          top: pt.y - r,
-          width: r * 2,
-          height: r * 2,
-          borderRadius: r,
-          backgroundColor: color,
+          left: pt.x - hitR,
+          top: pt.y - hitR,
+          width: hitR * 2,
+          height: hitR * 2,
+          alignItems: "center",
+          justifyContent: "center",
         }}
-      />,
+        activeOpacity={0.7}
+      >
+        <View
+          style={{
+            width: r * 2,
+            height: r * 2,
+            borderRadius: r,
+            backgroundColor: color,
+            borderWidth: isSelected ? 2 : 0,
+            borderColor: "#FFFFFF",
+          }}
+        />
+      </TouchableOpacity>,
     );
   });
 
@@ -147,6 +166,18 @@ function Polyline({
 
 const Y_AXIS_WIDTH = 36;
 const TOOLTIP_WIDTH = 140;
+
+type Selection = { idx: number; sport: LineDataKey } | null;
+
+const SPORT_HOURS_KEY: Record<LineDataKey, keyof WeeklyVolume> = {
+  swim: "swim_hours", bike: "bike_hours", run: "run_hours", total: "total_hours",
+};
+const SPORT_MILES_KEY: Record<LineDataKey, keyof WeeklyVolume> = {
+  swim: "swim_miles", bike: "bike_miles", run: "run_miles", total: "total_miles",
+};
+const SPORT_LABEL: Record<LineDataKey, string> = {
+  swim: "Swim", bike: "Bike", run: "Run", total: "Total",
+};
 
 function LineChart({
   chartData,
@@ -162,7 +193,7 @@ function LineChart({
   colors: ThemeColors;
 }) {
   const [w, setW] = useState(0);
-  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const [selection, setSelection] = useState<Selection>(null);
   const h = CHART_HEIGHT;
   const maxY = maxHours * 1.15;
   const gridPcts = [0, 0.5, 1];
@@ -170,13 +201,19 @@ function LineChart({
 
   const xOf = (i: number) => (n < 2 ? w / 2 : (i / (n - 1)) * w);
 
-  const selected = selectedIdx !== null ? weeklyData[selectedIdx] : null;
-
-  // Clamp tooltip so it doesn't overflow left or right edge
   const tooltipLeft = (idx: number) => {
     const x = xOf(idx);
     return Math.min(Math.max(x - TOOLTIP_WIDTH / 2, 0), w - TOOLTIP_WIDTH);
   };
+
+  const handleDotPress = (sport: LineDataKey, idx: number) => {
+    setSelection((prev) =>
+      prev?.idx === idx && prev?.sport === sport ? null : { idx, sport },
+    );
+  };
+
+  const week = selection ? weeklyData[selection.idx] : null;
+  const sportColor = selection ? SPORT_COLORS[selection.sport] : colors.primary;
 
   return (
     <View style={{ flexDirection: "row", height: h + 48 }}>
@@ -211,76 +248,63 @@ function LineChart({
               />
             ))}
 
-            {/* Lines */}
+            {/* Lines + tappable dots per sport */}
             {SPORT_KEYS.map((key) =>
               visible[key] ? (
                 <Polyline
                   key={key}
                   pts={toCoords(chartData, key, maxY, w, h)}
                   color={SPORT_COLORS[key]}
+                  selectedIdx={selection?.sport === key ? selection.idx : null}
+                  onDotPress={(idx) => handleDotPress(key, idx)}
                 />
               ) : null,
             )}
 
-            {/* Selected column highlight */}
-            {selectedIdx !== null && (
+            {/* Selected column hairline */}
+            {selection && (
               <View
+                pointerEvents="none"
                 style={{
                   position: "absolute",
-                  left: xOf(selectedIdx) - 1,
+                  left: xOf(selection.idx) - 1,
                   top: 0,
                   width: 2,
                   height: h,
-                  backgroundColor: colors.lightGray + "60",
+                  backgroundColor: sportColor + "50",
                 }}
               />
             )}
 
-            {/* Tappable column zones */}
-            {chartData.map((_, i) => {
-              const colW = n < 2 ? w : w / n;
-              const colX = n < 2 ? 0 : xOf(i) - colW / 2;
-              return (
-                <TouchableOpacity
-                  key={`tap${i}`}
-                  onPress={() => setSelectedIdx(selectedIdx === i ? null : i)}
-                  style={{
-                    position: "absolute",
-                    left: colX,
-                    top: 0,
-                    width: colW,
-                    height: h,
-                  }}
-                  activeOpacity={1}
-                />
-              );
-            })}
-
             {/* Tooltip */}
-            {selected !== null && selectedIdx !== null && (
+            {week && selection && (
               <View
+                pointerEvents="none"
                 style={{
                   position: "absolute",
-                  top: -44,
-                  left: tooltipLeft(selectedIdx),
+                  top: -52,
+                  left: tooltipLeft(selection.idx),
                   width: TOOLTIP_WIDTH,
                   backgroundColor: colors.mediumGray,
                   borderRadius: BORDER_RADIUS.sm,
                   borderWidth: 1,
-                  borderColor: colors.darkGray,
+                  borderColor: sportColor + "80",
                   paddingVertical: SPACING.xs,
                   paddingHorizontal: SPACING.sm,
                 }}
               >
-                <Text style={{ fontSize: 9, color: colors.lightGray, fontWeight: "600", marginBottom: 2 }}>
-                  {selected.week_label}
-                </Text>
-                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text style={{ fontSize: 10, color: colors.white, fontWeight: "700" }}>
-                    {selected.total_hours.toFixed(1)}h
+                <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.xs, marginBottom: 2 }}>
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: sportColor }} />
+                  <Text style={{ fontSize: 9, color: colors.lightGray, fontWeight: "600" }}>
+                    {SPORT_LABEL[selection.sport]} · {week.week_label}
                   </Text>
-                  <Text style={{ fontSize: 10, color: colors.white, fontWeight: "700" }}>
-                    {selected.total_miles.toFixed(1)} mi
+                </View>
+                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <Text style={{ fontSize: 11, color: colors.white, fontWeight: "700" }}>
+                    {(week[SPORT_HOURS_KEY[selection.sport]] as number).toFixed(1)}h
+                  </Text>
+                  <Text style={{ fontSize: 11, color: colors.white, fontWeight: "700" }}>
+                    {(week[SPORT_MILES_KEY[selection.sport]] as number).toFixed(1)} mi
                   </Text>
                 </View>
               </View>
