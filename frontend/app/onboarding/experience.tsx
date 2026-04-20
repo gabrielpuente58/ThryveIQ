@@ -22,7 +22,7 @@ export default function ExperienceScreen() {
 
   return (
     <Screen style={styles.container}>
-      <ProgressBar current={3} total={8} />
+      <ProgressBar current={2} total={6} />
       <View style={styles.content}>
         <Text style={styles.title}>Triathlon experience?</Text>
         <Text style={styles.subtitle}>How much triathlon experience do you have?</Text>
@@ -42,7 +42,7 @@ export default function ExperienceScreen() {
         <Button title="Back" variant="secondary" onPress={() => router.back()} />
         <Button
           title="Next"
-          onPress={() => router.push("/onboarding/background")}
+          onPress={() => router.push("/onboarding/weekly-hours")}
           disabled={!data.experience}
         />
       </View>

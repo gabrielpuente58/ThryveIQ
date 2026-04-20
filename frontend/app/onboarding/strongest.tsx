@@ -22,7 +22,7 @@ export default function StrongestScreen() {
 
   return (
     <Screen style={styles.container}>
-      <ProgressBar current={7} total={8} />
+      <ProgressBar current={5} total={6} />
       <View style={styles.content}>
         <Text style={styles.title}>Strongest discipline</Text>
         <Text style={styles.subtitle}>Which discipline do you feel most confident in?</Text>

@@ -17,7 +17,7 @@ export default function DaysAvailableScreen() {
 
   return (
     <Screen style={styles.container}>
-      <ProgressBar current={6} total={8} />
+      <ProgressBar current={4} total={6} />
       <View style={styles.content}>
         <Text style={styles.title}>Training days per week</Text>
         <Text style={styles.subtitle}>

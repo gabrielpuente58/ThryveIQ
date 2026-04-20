@@ -33,7 +33,7 @@ export default function WeakestScreen() {
     if (!user) return;
     setLoading(true);
     try {
-      const payload = { ...data, user_id: user.id };
+      const payload = { ...data, user_id: user.id, goal: data.experience };
 
       const res = await fetch(`${API_URL}/profiles`, {
         method: "POST",
@@ -86,7 +86,7 @@ export default function WeakestScreen() {
 
   return (
     <Screen style={styles.container}>
-      <ProgressBar current={8} total={8} />
+      <ProgressBar current={6} total={6} />
       <View style={styles.content}>
         <Text style={styles.title}>Weakest discipline</Text>
         <Text style={styles.subtitle}>Which discipline needs the most work?</Text>

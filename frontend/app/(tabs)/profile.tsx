@@ -344,7 +344,6 @@ export default function ProfileScreen() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [saving, setSaving] = useState(false);
-  const [generating, setGenerating] = useState(false);
 
   const [insights, setInsights] = useState<StravaInsightsResponse | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(true);
@@ -449,7 +448,6 @@ export default function ProfileScreen() {
   const handleSave = async () => {
     if (!user || !draft || !profile) return;
     setSaving(true);
-    const raceDateChanged = draft.race_date !== profile.race_date;
     try {
       const payload: Record<string, string | number> = {};
 
@@ -459,7 +457,7 @@ export default function ProfileScreen() {
         payload.strongest_discipline = draft.strongest_discipline;
       if (draft.weakest_discipline !== profile.weakest_discipline)
         payload.weakest_discipline = draft.weakest_discipline;
-      if (raceDateChanged) payload.race_date = draft.race_date;
+      if (draft.race_date !== profile.race_date) payload.race_date = draft.race_date;
 
       const parsedHours = parseFloat(draft.weekly_hours);
       if (!isNaN(parsedHours) && parsedHours !== profile.weekly_hours)
@@ -489,51 +487,6 @@ export default function ProfileScreen() {
       });
       setEditing(false);
       setDraft(null);
-
-      if (raceDateChanged) {
-        Alert.alert(
-          "Race Date Updated",
-          "Would you like to generate a new training plan for your updated race date?",
-          [
-            { text: "Not Now", style: "cancel" },
-            {
-              text: "Generate Plan",
-              onPress: async () => {
-                setGenerating(true);
-                try {
-                  const kickoffRes = await fetch(`${API_URL}/plans/generate`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ user_id: user.id }),
-                  });
-                  if (!kickoffRes.ok) throw new Error("Failed to start plan generation");
-                  const { job_id } = await kickoffRes.json();
-
-                  // Poll every 5s until done or error
-                  await new Promise<void>((resolve, reject) => {
-                    const interval = setInterval(async () => {
-                      try {
-                        const statusRes = await fetch(`${API_URL}/plans/job/${job_id}`);
-                        if (!statusRes.ok) { clearInterval(interval); reject(new Error("Job not found")); return; }
-                        const job = await statusRes.json();
-                        if (job.status === "done") { clearInterval(interval); resolve(); }
-                        else if (job.status === "error") { clearInterval(interval); reject(new Error(job.error || "Generation failed")); }
-                      } catch (e) { clearInterval(interval); reject(e); }
-                    }, 5000);
-                  });
-
-                  setGenerating(false);
-                  router.replace("/(tabs)/plan");
-                } catch (e: unknown) {
-                  setGenerating(false);
-                  const msg = e instanceof Error ? e.message : "Could not generate plan.";
-                  Alert.alert("Error", msg);
-                }
-              },
-            },
-          ]
-        );
-      }
     } catch {
       Alert.alert("Error", "Could not save changes.");
     } finally {
@@ -545,20 +498,6 @@ export default function ProfileScreen() {
     return (
       <Screen style={styles.centered}>
         <ActivityIndicator size="large" color={colors.primary} />
-      </Screen>
-    );
-  }
-
-  if (generating) {
-    return (
-      <Screen style={styles.centered}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={[styles.sectionTitle, { marginTop: SPACING.md, textAlign: "center" }]}>
-          Building your training plan…
-        </Text>
-        <Text style={[{ fontSize: FONT_SIZES.sm, color: colors.lightGray, marginTop: SPACING.sm, textAlign: "center" }]}>
-          This takes a few minutes — building week by week
-        </Text>
       </Screen>
     );
   }
@@ -815,7 +754,7 @@ export default function ProfileScreen() {
 
             <TouchableOpacity
               style={styles.devButton}
-              onPress={() => router.push("/onboarding/goal?test=true")}
+              onPress={() => router.push("/onboarding/race-date?test=true")}
             >
               <Ionicons name="construct-outline" size={16} color={colors.lightGray} />
               <Text style={styles.devButtonText}>Test Onboarding</Text>

@@ -29,7 +29,7 @@ export default function RaceDateScreen() {
 
   return (
     <Screen style={styles.container}>
-      <ProgressBar current={2} total={8} />
+      <ProgressBar current={1} total={6} />
       <View style={styles.content}>
         <Text style={styles.title}>When is your race?</Text>
         <Text style={styles.subtitle}>Pick the exact date of your target event.</Text>

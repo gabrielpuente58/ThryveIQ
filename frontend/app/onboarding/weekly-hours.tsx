@@ -35,7 +35,7 @@ export default function WeeklyHoursScreen() {
   return (
     <Pressable style={{ flex: 1 }} onPress={Keyboard.dismiss}>
       <Screen style={styles.container}>
-        <ProgressBar current={5} total={8} />
+        <ProgressBar current={3} total={6} />
         <KeyboardAvoidingView
           style={styles.content}
           behavior={Platform.OS === "ios" ? "padding" : "height"}

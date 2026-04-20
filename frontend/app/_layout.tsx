@@ -44,7 +44,7 @@ function RouteGuard() {
         if (data && data.length > 0) {
           if (!inTabs) router.replace("/(tabs)/plan");
         } else {
-          router.replace("/onboarding/goal");
+          router.replace("/onboarding/race-date");
         }
       } catch {
         if (!inTabs) router.replace("/(tabs)/plan");
