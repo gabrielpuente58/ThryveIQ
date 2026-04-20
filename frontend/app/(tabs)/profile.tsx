@@ -96,7 +96,7 @@ function profileToDraft(p: Profile): EditDraft {
 
 export default function ProfileScreen() {
   const { user } = useAuth();
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, toggleTheme } = useTheme();
   const styles = makeStyles(colors);
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -262,11 +262,16 @@ export default function ProfileScreen() {
         {/* Header */}
         <View style={styles.headerRow}>
           <Text style={styles.title}>Profile</Text>
-          {profile && !editing && (
-            <TouchableOpacity onPress={handleEditPress} style={styles.editButton}>
-              <Ionicons name="pencil-outline" size={20} color={colors.primary} />
+          <View style={styles.headerActions}>
+            <TouchableOpacity onPress={toggleTheme} style={styles.iconButton}>
+              <Ionicons name={isDark ? "sunny-outline" : "moon-outline"} size={20} color={colors.lightGray} />
             </TouchableOpacity>
-          )}
+            {profile && !editing && (
+              <TouchableOpacity onPress={handleEditPress} style={styles.iconButton}>
+                <Ionicons name="pencil-outline" size={20} color={colors.primary} />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         {/* Race Countdown */}
@@ -544,6 +549,14 @@ const makeStyles = (colors: ThemeColors) =>
       fontSize: FONT_SIZES.xxl,
       fontWeight: "bold",
       color: colors.white,
+    },
+    headerActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: SPACING.sm,
+    },
+    iconButton: {
+      padding: SPACING.xs,
     },
     editButton: {
       padding: SPACING.xs,

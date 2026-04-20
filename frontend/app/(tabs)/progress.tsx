@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -8,7 +8,6 @@ import {
   Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { CartesianChart, Line } from "victory-native";
 import { Screen } from "../../components/Screen";
 import { Card } from "../../components/Card";
 import { Button } from "../../components/Button";
@@ -62,6 +61,128 @@ const SPORT_COLORS = {
 } as const;
 
 const CHART_HEIGHT = 180;
+const CHART_WIDTH = SCREEN_WIDTH - 64; // card horizontal padding
+
+// ── Pure-RN line chart ────────────────────────────────────────────────────────
+
+type LineDataKey = "swim" | "bike" | "run";
+
+function toChartCoords(
+  points: ChartPoint[],
+  key: LineDataKey,
+  maxY: number,
+  w: number,
+  h: number,
+) {
+  return points.map((p, i) => ({
+    x: points.length < 2 ? w / 2 : (i / (points.length - 1)) * w,
+    y: h - (p[key] / maxY) * h,
+  }));
+}
+
+function Polyline({
+  pts,
+  color,
+  strokeWidth = 2.5,
+}: {
+  pts: { x: number; y: number }[];
+  color: string;
+  strokeWidth?: number;
+}) {
+  const segments: React.ReactElement[] = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const x1 = pts[i].x;
+    const y1 = pts[i].y;
+    const x2 = pts[i + 1].x;
+    const y2 = pts[i + 1].y;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    segments.push(
+      <View
+        key={i}
+        style={{
+          position: "absolute",
+          left: x1,
+          top: y1 - strokeWidth / 2,
+          width: len,
+          height: strokeWidth,
+          backgroundColor: color,
+          borderRadius: strokeWidth / 2,
+          transform: [
+            { translateX: len / 2 },
+            { rotate: `${angle}deg` },
+            { translateX: -(len / 2) },
+          ],
+        }}
+      />,
+    );
+  }
+  // dots at each point
+  pts.forEach((pt, i) => {
+    segments.push(
+      <View
+        key={`dot-${i}`}
+        style={{
+          position: "absolute",
+          left: pt.x - strokeWidth,
+          top: pt.y - strokeWidth,
+          width: strokeWidth * 2,
+          height: strokeWidth * 2,
+          borderRadius: strokeWidth,
+          backgroundColor: color,
+        }}
+      />,
+    );
+  });
+  return <>{segments}</>;
+}
+
+function LineChart({
+  chartData,
+  maxHours,
+  colors,
+}: {
+  chartData: ChartPoint[];
+  maxHours: number;
+  colors: ThemeColors;
+}) {
+  const w = CHART_WIDTH;
+  const h = CHART_HEIGHT;
+  const maxY = maxHours * 1.15;
+
+  const swimPts = toChartCoords(chartData, "swim", maxY, w, h);
+  const bikePts = toChartCoords(chartData, "bike", maxY, w, h);
+  const runPts  = toChartCoords(chartData, "run",  maxY, w, h);
+
+  // y-axis gridlines at 0, 50%, 100%
+  const gridLines = [0, 0.5, 1].map((pct) => {
+    const y = h - pct * h;
+    return (
+      <View
+        key={pct}
+        style={{
+          position: "absolute",
+          left: 0,
+          top: y,
+          width: w,
+          height: 1,
+          backgroundColor: colors.darkGray,
+        }}
+      />
+    );
+  });
+
+  return (
+    <View style={{ width: w, height: h, position: "relative" }}>
+      {gridLines}
+      <Polyline pts={swimPts} color={SPORT_COLORS.swim} />
+      <Polyline pts={bikePts} color={SPORT_COLORS.bike} />
+      <Polyline pts={runPts}  color={SPORT_COLORS.run}  />
+    </View>
+  );
+}
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -243,37 +364,8 @@ export default function ProgressScreen() {
         <SectionLabel label="Weekly Training Hours" colors={colors} />
         <Card style={styles.chartCard}>
           <ChartLegend colors={colors} />
-          <View style={{ height: CHART_HEIGHT, marginTop: SPACING.sm }}>
-            <CartesianChart
-              data={chartData}
-              xKey="x"
-              yKeys={["swim", "bike", "run"]}
-              domain={{ y: [0, maxHours * 1.2] }}
-              domainPadding={{ left: 8, right: 8, top: 8 }}
-            >
-              {({ points }) => (
-                <>
-                  <Line
-                    points={points.swim}
-                    color={SPORT_COLORS.swim}
-                    strokeWidth={2.5}
-                    curveType="natural"
-                  />
-                  <Line
-                    points={points.bike}
-                    color={SPORT_COLORS.bike}
-                    strokeWidth={2.5}
-                    curveType="natural"
-                  />
-                  <Line
-                    points={points.run}
-                    color={SPORT_COLORS.run}
-                    strokeWidth={2.5}
-                    curveType="natural"
-                  />
-                </>
-              )}
-            </CartesianChart>
+          <View style={{ marginTop: SPACING.sm }}>
+            <LineChart chartData={chartData} maxHours={maxHours} colors={colors} />
           </View>
           <WeekLabels weeks={data.weekly_volumes} colors={colors} />
         </Card>
