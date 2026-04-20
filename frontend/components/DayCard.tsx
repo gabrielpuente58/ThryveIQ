@@ -12,6 +12,7 @@ interface Session {
   zone: number;
   zone_label: string;
   description: string;
+  distance_yards?: number | null;
 }
 
 interface DayCardProps {
@@ -35,6 +36,7 @@ export const DayCard: React.FC<DayCardProps> = ({ day, sessions, onPressSession 
             zone={session.zone}
             zone_label={session.zone_label}
             description={session.description}
+            distance_yards={session.distance_yards}
             onPress={onPressSession ? () => onPressSession(session.id) : undefined}
           />
         </React.Fragment>

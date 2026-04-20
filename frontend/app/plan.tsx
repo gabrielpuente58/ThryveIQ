@@ -21,6 +21,7 @@ interface Session {
   zone: number;
   zone_label: string;
   description: string;
+  distance_yards?: number | null;
 }
 
 interface Plan {
@@ -108,6 +109,7 @@ export default function PlanScreen() {
             zone={session.zone}
             zone_label={session.zone_label}
             description={session.description}
+            distance_yards={session.distance_yards}
           />
         ))}
       </ScrollView>

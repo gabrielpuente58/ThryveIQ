@@ -22,6 +22,7 @@ interface SessionCardProps {
   zone: number;
   zone_label: string;
   description: string;
+  distance_yards?: number | null;
   onPress?: () => void;
 }
 
@@ -31,11 +32,15 @@ export const SessionCard: React.FC<SessionCardProps> = ({
   zone,
   zone_label,
   description,
+  distance_yards,
   onPress,
 }) => {
   const { colors } = useTheme();
   const styles = makeStyles(colors);
   const sportColor = SPORT_COLORS[sport] ?? colors.primary;
+  const volumeLabel = sport === "swim" && distance_yards
+    ? `${distance_yards}yd`
+    : `${duration_minutes}min`;
 
   const inner = (
     <View style={styles.session}>
@@ -44,7 +49,7 @@ export const SessionCard: React.FC<SessionCardProps> = ({
           <View style={[styles.sportBadge, { backgroundColor: sportColor }]}>
             <Text style={styles.sportText}>{SPORT_LABELS[sport] ?? sport}</Text>
           </View>
-          <Text style={styles.duration}>{duration_minutes}min</Text>
+          <Text style={styles.duration}>{volumeLabel}</Text>
         </View>
         <View style={styles.zoneBadge}>
           <Text style={styles.zoneText}>Z{zone} {zone_label}</Text>
