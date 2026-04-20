@@ -52,13 +52,32 @@ export default function WeakestScreen() {
         body: JSON.stringify({ user_id: user.id }),
       });
 
-      if (!planRes.ok) {
-        throw new Error("Failed to generate plan");
-      }
+      if (!planRes.ok) throw new Error("Failed to start plan generation");
+
+      const { job_id } = await planRes.json();
+
+      await new Promise<void>((resolve, reject) => {
+        const poll = setInterval(async () => {
+          try {
+            const jobRes = await fetch(`${API_URL}/plans/job/${job_id}`);
+            const job = await jobRes.json();
+            if (job.status === "done") {
+              clearInterval(poll);
+              resolve();
+            } else if (job.status === "error") {
+              clearInterval(poll);
+              reject(new Error(job.error ?? "Plan generation failed"));
+            }
+          } catch (e) {
+            clearInterval(poll);
+            reject(e);
+          }
+        }, 5000);
+      });
 
       router.replace("/(tabs)/plan");
     } catch (err) {
-      Alert.alert("Error", "Failed to save profile. Please try again.");
+      Alert.alert("Error", "Failed to save profile or generate plan. Please try again.");
       console.error(err);
     } finally {
       setLoading(false);
@@ -86,9 +105,9 @@ export default function WeakestScreen() {
       <View style={styles.buttons}>
         <Button title="Back" variant="secondary" onPress={() => router.back()} />
         <Button
-          title="Finish"
+          title={loading ? "Building plan…" : "Finish"}
           onPress={handleSubmit}
-          disabled={!data.weakest_discipline}
+          disabled={!data.weakest_discipline || loading}
           loading={loading}
         />
       </View>
