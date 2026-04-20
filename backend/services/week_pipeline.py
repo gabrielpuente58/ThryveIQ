@@ -139,6 +139,9 @@ async def _generate_descriptions_batch(
                 "duration_minutes": s["duration_minutes"],
                 "zone": s["zone"],
                 "zone_label": s["zone_label"],
+                "session_type": s.get("session_type", ""),
+                "week": s["week"],
+                "week_within_phase": s.get("week_within_phase", 1),
                 "phase": getattr(phase, "phase_name", str(phase)),
                 "phase_focus": getattr(phase, "focus", ""),
             })
@@ -160,10 +163,12 @@ async def _generate_descriptions_batch(
         f"Strongest: {athlete_profile.get('strongest_discipline', 'bike')}, "
         f"Weakest: {athlete_profile.get('weakest_discipline', 'swim')}.\n"
         f"Coaching style: {exp_guidance}\n\n"
-        "Write a 2-3 sentence coaching description for each session. "
-        "Focus on the PURPOSE of the session and key execution cues. "
-        "Reference the zone and effort feel. Do not repeat the interval structure — "
-        "just describe why this session matters and what to focus on.\n\n"
+        "Write a 2-3 sentence coaching description for EACH session. Rules:\n"
+        "- Use the session_type to determine the workout's PURPOSE (e.g. long_run = aerobic base building, "
+        "tempo_run = lactate threshold, interval_run = VO2max, sweet_spot_ride = sustained power).\n"
+        "- Each description MUST be unique — vary the cues, focus points, and language week to week.\n"
+        "- Reference week_within_phase to show progression (early weeks = build fitness, later = peak intensity).\n"
+        "- Do NOT repeat the interval structure — describe why this session matters and what to focus on.\n\n"
         f"Sessions:\n{json.dumps(all_sessions, indent=2)}\n\n"
         'Return JSON: {"descriptions": [{"id": "<session_id>", "description": "<text>"}]}'
     )
@@ -357,7 +362,8 @@ async def generate_full_plan(
             phase.phase_name,
             phase.weeks,
         )
-        for _ in range(phase.weeks):
+        for week_in_phase in range(phase.weeks):
+            week_within_phase = week_in_phase + 1  # 1-based
             volume_result = calculate_weekly_target_volume_math(
                 week_index=global_week_index,
                 phase_name=phase.phase_name,
@@ -374,6 +380,7 @@ async def generate_full_plan(
                 days_available=days_available,
                 strongest_discipline=strongest,
                 weakest_discipline=weakest,
+                week_within_phase=week_within_phase,
             )
 
             if previous_week_minutes > 0:

@@ -135,6 +135,65 @@ def _assign_days(
     return assignments
 
 
+def _assign_zone_varied(
+    session_index: int,
+    total_sessions: int,
+    sport: str,
+    is_recovery_week: bool,
+    week_within_phase: int,
+) -> int:
+    """Zone assignment that varies by week-in-phase cycle: aerobic → development → quality."""
+    if is_recovery_week:
+        return 1 if session_index % 2 == 0 else 2
+
+    cycle = week_within_phase % 3  # 1=aerobic base, 2=development, 0=quality
+
+    if cycle == 1:  # Aerobic base — mostly Z2, one Z3 key session
+        if session_index == total_sessions - 1 and total_sessions >= 4:
+            return 3
+        return 2
+
+    elif cycle == 2:  # Development — Z2 base + Z3-4 key sessions
+        ratio = session_index / max(total_sessions - 1, 1)
+        if ratio < 0.60:
+            return 2
+        elif ratio < 0.85:
+            return 3
+        else:
+            return 4 if sport in ("bike", "run") else 3
+
+    else:  # Quality — Z2 + Z4-5 intensity work
+        ratio = session_index / max(total_sessions - 1, 1)
+        if ratio < 0.55:
+            return 2
+        elif ratio < 0.75:
+            return 3
+        else:
+            return 5 if sport == "run" else 4
+
+
+def _session_type(sport: str, zone: int, is_long: bool, week_within_phase: int) -> str:
+    """Human-readable session type used by the LLM to write varied descriptions."""
+    cycle = week_within_phase % 3
+    if sport == "run":
+        if zone <= 1: return "recovery_run"
+        if zone == 2 and is_long: return "long_run"
+        if zone == 2: return "easy_aerobic_run" if cycle == 1 else "base_run"
+        if zone == 3: return "tempo_run"
+        return "interval_run"
+    elif sport == "bike":
+        if zone <= 1: return "recovery_ride"
+        if zone == 2 and is_long: return "long_ride"
+        if zone == 2: return "endurance_ride"
+        if zone == 3: return "sweet_spot_ride"
+        return "threshold_intervals"
+    else:  # swim
+        if zone <= 1: return "easy_swim"
+        if zone == 2: return "technique_drill_swim" if cycle == 1 else "endurance_swim"
+        if zone == 3: return "threshold_swim"
+        return "sprint_set_swim"
+
+
 def allocate_week_structure_logic(
     week_index: int,
     phase_name: str,
@@ -143,6 +202,7 @@ def allocate_week_structure_logic(
     days_available: int,
     strongest_discipline: str,
     weakest_discipline: str,
+    week_within_phase: int = 1,
 ) -> dict:
     """
     Pure logic for building a week skeleton — callable without LangChain.
@@ -162,6 +222,9 @@ def allocate_week_structure_logic(
         NO description field — that is the Workout Builder's responsibility.
     """
     is_recovery_week = (week_index % 4 == 0)
+    # Override: if explicitly in a taper/recovery phase, treat every week as recovery
+    if "taper" in phase_name.lower() or "recovery" in phase_name.lower():
+        is_recovery_week = True
 
     # Build full sport list from template
     all_sports = _build_session_list(weekly_structure_template)
@@ -188,10 +251,10 @@ def allocate_week_structure_logic(
     # Assign sessions to days
     day_assignments = _assign_days(interleaved, days_available, target_hours)
 
-    # Assign zones (polarized model) using plan_engine._assign_zone
+    # Assign zones — varied by week_within_phase for progressive overload
     total_sessions = len(day_assignments)
     zones = [
-        _assign_zone(i, total_sessions, is_recovery_week)
+        _assign_zone_varied(i, total_sessions, day_assignments[i]["sport"], is_recovery_week, week_within_phase)
         for i in range(total_sessions)
     ]
 
@@ -227,6 +290,8 @@ def allocate_week_structure_logic(
             "duration_minutes": duration,
             "zone": zone,
             "zone_label": ZONE_LABELS[zone],
+            "session_type": _session_type(sport, zone, assignment.get("is_long", False), week_within_phase),
+            "week_within_phase": week_within_phase,
         })
 
     return {
