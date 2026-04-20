@@ -49,6 +49,7 @@ interface ChartPoint {
   swim: number;
   bike: number;
   run: number;
+  total: number;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -59,15 +60,16 @@ const SPORT_COLORS = {
   swim: "#3B82F6",
   bike: "#22C55E",
   run: "#F97316",
+  total: "#A78BFA",
 } as const;
 
 const CHART_HEIGHT = 180;
 
 // ── Pure-RN line chart ────────────────────────────────────────────────────────
 
-type LineDataKey = "swim" | "bike" | "run";
+type LineDataKey = "swim" | "bike" | "run" | "total";
 
-const SPORT_KEYS: LineDataKey[] = ["swim", "bike", "run"];
+const SPORT_KEYS: LineDataKey[] = ["total", "swim", "bike", "run"];
 
 function toCoords(
   points: ChartPoint[],
@@ -255,7 +257,7 @@ function SportToggle({
           >
             <View style={[toggle.dot, { backgroundColor: active ? color : colors.darkGray }]} />
             <Text style={[toggle.label, { color: active ? color : colors.lightGray }]}>
-              {key.charAt(0).toUpperCase() + key.slice(1)}
+              {key === "total" ? "Total" : key.charAt(0).toUpperCase() + key.slice(1)}
             </Text>
           </TouchableOpacity>
         );
@@ -314,6 +316,7 @@ export default function ProgressScreen() {
   const [data, setData] = useState<StravaInsightsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [visible, setVisible] = useState<Record<LineDataKey, boolean>>({
+    total: true,
     swim: true,
     bike: true,
     run: true,
@@ -403,6 +406,7 @@ export default function ProgressScreen() {
     swim: w.swim_hours,
     bike: w.bike_hours,
     run: w.run_hours,
+    total: w.total_hours,
   }));
 
   const maxHours = Math.max(...data.weekly_volumes.map((w) => w.total_hours), 1);
