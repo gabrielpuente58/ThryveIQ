@@ -61,6 +61,7 @@ def _attach_intervals(sessions: list[dict], experience: str) -> list[dict]:
             duration_minutes=s["duration_minutes"],
             experience=experience,
             distance_yards=s.get("distance_yards"),
+            session_type=s.get("session_type", ""),
         )
     return sessions
 
