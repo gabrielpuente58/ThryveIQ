@@ -344,6 +344,7 @@ export default function ProfileScreen() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   const [insights, setInsights] = useState<StravaInsightsResponse | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(true);
@@ -498,6 +499,7 @@ export default function ProfileScreen() {
             {
               text: "Generate Plan",
               onPress: async () => {
+                setGenerating(true);
                 try {
                   const planRes = await fetch(`${API_URL}/plans/generate`, {
                     method: "POST",
@@ -505,8 +507,10 @@ export default function ProfileScreen() {
                     body: JSON.stringify({ user_id: user.id }),
                   });
                   if (!planRes.ok) throw new Error("Plan generation failed");
-                  Alert.alert("Done", "Your new training plan is ready!");
+                  setGenerating(false);
+                  router.replace("/(tabs)/plan");
                 } catch {
+                  setGenerating(false);
                   Alert.alert("Error", "Could not generate plan. Please try again.");
                 }
               },
@@ -525,6 +529,20 @@ export default function ProfileScreen() {
     return (
       <Screen style={styles.centered}>
         <ActivityIndicator size="large" color={colors.primary} />
+      </Screen>
+    );
+  }
+
+  if (generating) {
+    return (
+      <Screen style={styles.centered}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={[styles.sectionTitle, { marginTop: SPACING.md, textAlign: "center" }]}>
+          Building your training plan…
+        </Text>
+        <Text style={[{ fontSize: FONT_SIZES.sm, color: colors.lightGray, marginTop: SPACING.sm, textAlign: "center" }]}>
+          This usually takes 30–60 seconds
+        </Text>
       </Screen>
     );
   }
