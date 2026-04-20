@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Screen } from "../components/Screen";
-import { SessionCard } from "../components/SessionCard";
+import { SessionCard, Interval } from "../components/SessionCard";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { API_URL } from "../constants/api";
@@ -27,6 +27,7 @@ interface Session {
   zone_label: string;
   description: string;
   distance_yards?: number | null;
+  intervals?: Interval[];
 }
 
 interface Plan {
@@ -188,12 +189,16 @@ export default function PlanScreen() {
           weekSessions.map((session) => (
             <SessionCard
               key={session.id}
+              id={session.id}
               sport={session.sport}
               duration_minutes={session.duration_minutes}
               zone={session.zone}
               zone_label={session.zone_label}
               description={session.description}
               distance_yards={session.distance_yards}
+              intervals={session.intervals}
+              day={session.day}
+              week={session.week}
             />
           ))
         ) : (

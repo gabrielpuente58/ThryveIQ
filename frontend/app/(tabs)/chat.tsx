@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from "react-native";
+import { useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "../../components/Screen";
 import { Input } from "../../components/Input";
@@ -17,6 +18,7 @@ import { ThemeColors, SPACING, BORDER_RADIUS, FONT_SIZES } from "../../constants
 import { API_URL } from "../../constants/api";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
+import { consumePendingWorkoutChat } from "../../lib/workoutChatContext";
 
 interface Message {
   id: string;
@@ -25,28 +27,40 @@ interface Message {
   timestamp: Date;
 }
 
+const GREETING: Message = {
+  id: "1",
+  text: "Hi! I'm your AI triathlon coach. Ask me anything about your training, workouts, or triathlon in general.",
+  isUser: false,
+  timestamp: new Date(),
+};
+
 export default function ChatScreen() {
   const { user } = useAuth();
   const { colors } = useTheme();
   const styles = makeStyles(colors);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      text: "Hi! I'm your AI triathlon coach. How can I help you today?",
-      isUser: false,
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([GREETING]);
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const pendingContextRef = useRef<string>("");
 
-  const handleSend = async () => {
-    if (!inputText.trim() || isLoading || !user) return;
+  // On tab focus, check for a pending "Ask Coach" workout context
+  useFocusEffect(
+    useCallback(() => {
+      const pending = consumePendingWorkoutChat();
+      if (!pending || !user) return;
+      pendingContextRef.current = pending.workoutContext;
+      // Auto-send the pre-built message with workout context
+      sendMessage(pending.message, pending.workoutContext);
+    }, [user])
+  );
+
+  const sendMessage = async (text: string, workoutContext: string = "") => {
+    if (!text.trim() || !user) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
-      text: inputText.trim(),
+      text: text.trim(),
       isUser: true,
       timestamp: new Date(),
     };
@@ -58,10 +72,7 @@ export default function ChatScreen() {
     try {
       const history = messages
         .filter((m) => m.id !== "1")
-        .map((m) => ({
-          role: m.isUser ? "user" : "assistant",
-          content: m.text,
-        }));
+        .map((m) => ({ role: m.isUser ? "user" : "assistant", content: m.text }));
 
       const res = await fetch(`${API_URL}/chat/message`, {
         method: "POST",
@@ -70,42 +81,38 @@ export default function ChatScreen() {
           message: userMessage.text,
           history,
           user_id: user.id,
+          workout_context: workoutContext || pendingContextRef.current,
         }),
       });
+
+      // Clear context after first use
+      pendingContextRef.current = "";
+
       const data = await res.json();
-      const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: data.response,
-        isUser: false,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, aiMessage]);
+      setMessages((prev) => [
+        ...prev,
+        { id: (Date.now() + 1).toString(), text: data.response, isUser: false, timestamp: new Date() },
+      ]);
     } catch {
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: "Sorry, I couldn't connect to the server. Make sure the backend is running.",
-        isUser: false,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, errorMessage]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          text: "Sorry, couldn't reach the server. Make sure the backend is running.",
+          isUser: false,
+          timestamp: new Date(),
+        },
+      ]);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleSend = () => sendMessage(inputText);
+
   const renderMessage = ({ item }: { item: Message }) => (
-    <View
-      style={[
-        styles.messageContainer,
-        item.isUser ? styles.userMessageContainer : styles.aiMessageContainer,
-      ]}
-    >
-      <Card
-        style={[
-          styles.messageBubble,
-          item.isUser ? styles.userBubble : styles.aiBubble,
-        ]}
-      >
+    <View style={[styles.messageContainer, item.isUser ? styles.userContainer : styles.aiContainer]}>
+      <Card style={[styles.bubble, item.isUser ? styles.userBubble : styles.aiBubble]}>
         <Text style={[styles.messageText, item.isUser && styles.userMessageText]}>
           {item.text}
         </Text>
@@ -149,10 +156,7 @@ export default function ChatScreen() {
               />
             </View>
             <TouchableOpacity
-              style={[
-                styles.sendButton,
-                (!inputText.trim() || isLoading) && styles.sendButtonDisabled,
-              ]}
+              style={[styles.sendButton, (!inputText.trim() || isLoading) && styles.sendButtonDisabled]}
               onPress={handleSend}
               disabled={!inputText.trim() || isLoading}
               activeOpacity={0.7}
@@ -170,87 +174,44 @@ export default function ChatScreen() {
   );
 }
 
-const makeStyles = (colors: ThemeColors) => StyleSheet.create({
-  screen: {
-    padding: 0,
-  },
-  header: {
-    padding: SPACING.md,
-    paddingTop: SPACING.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.mediumGray,
-  },
-  title: {
-    fontSize: FONT_SIZES.xxl,
-    fontWeight: "bold",
-    color: colors.white,
-    marginBottom: SPACING.xs,
-  },
-  subtitle: {
-    fontSize: FONT_SIZES.sm,
-    color: colors.lightGray,
-  },
-  messageList: {
-    flex: 1,
-  },
-  messageListContent: {
-    padding: SPACING.md,
-    paddingBottom: SPACING.lg,
-  },
-  messageContainer: {
-    marginBottom: SPACING.md,
-    maxWidth: "80%",
-  },
-  userMessageContainer: {
-    alignSelf: "flex-end",
-  },
-  aiMessageContainer: {
-    alignSelf: "flex-start",
-  },
-  messageBubble: {
-    padding: SPACING.md,
-  },
-  userBubble: {
-    backgroundColor: colors.primary,
-  },
-  aiBubble: {
-    backgroundColor: colors.mediumGray,
-  },
-  messageText: {
-    fontSize: FONT_SIZES.md,
-    color: colors.white,
-    lineHeight: 22,
-  },
-  userMessageText: {
-    color: colors.background,
-  },
-  inputContainer: {
-    padding: SPACING.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.mediumGray,
-    backgroundColor: colors.background,
-  },
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: SPACING.sm,
-  },
-  inputWrapper: {
-    flex: 1,
-  },
-  input: {
-    maxHeight: 100,
-  },
-  sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 2,
-  },
-  sendButtonDisabled: {
-    opacity: 0.4,
-  },
-});
+const makeStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    screen: { padding: 0 },
+    header: {
+      padding: SPACING.md,
+      paddingTop: SPACING.lg,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.mediumGray,
+    },
+    title: { fontSize: FONT_SIZES.xxl, fontWeight: "bold", color: colors.white, marginBottom: SPACING.xs },
+    subtitle: { fontSize: FONT_SIZES.sm, color: colors.lightGray },
+    messageList: { flex: 1 },
+    messageListContent: { padding: SPACING.md, paddingBottom: SPACING.lg },
+    messageContainer: { marginBottom: SPACING.md, maxWidth: "80%" },
+    userContainer: { alignSelf: "flex-end" },
+    aiContainer: { alignSelf: "flex-start" },
+    bubble: { padding: SPACING.md },
+    userBubble: { backgroundColor: colors.primary },
+    aiBubble: { backgroundColor: colors.mediumGray },
+    messageText: { fontSize: FONT_SIZES.md, color: colors.white, lineHeight: 22 },
+    userMessageText: { color: colors.background },
+    inputContainer: {
+      padding: SPACING.md,
+      borderTopWidth: 1,
+      borderTopColor: colors.mediumGray,
+      backgroundColor: colors.background,
+    },
+    inputRow: { flexDirection: "row", alignItems: "flex-end", gap: SPACING.sm },
+    inputWrapper: { flex: 1 },
+    input: { maxHeight: 100 },
+    sendButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 2,
+    },
+    sendButtonDisabled: { opacity: 0.4 },
+  });
