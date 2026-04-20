@@ -36,3 +36,10 @@ class PlanResponse(BaseModel):
 class GeneratePlanRequest(BaseModel):
     user_id: str
     max_weeks: Optional[int] = None
+
+
+class PlanJobResponse(BaseModel):
+    job_id: str
+    status: str  # "pending" | "done" | "error"
+    plan: Optional[PlanResponse] = None
+    error: Optional[str] = None

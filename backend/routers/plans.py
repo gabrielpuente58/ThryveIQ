@@ -1,5 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query
-from models.plan import GeneratePlanRequest, PlanResponse, Session, Phase
+import asyncio
+import uuid
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from models.plan import GeneratePlanRequest, PlanJobResponse, PlanResponse, Session, Phase
 from models.blueprint import ArchitectRequest, PlanBlueprint
 from models.workout_expander import WorkoutDetail, ExpandRequest
 from db.supabase import supabase
@@ -10,83 +12,92 @@ from services.agents.workout_expander import run_workout_expander
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
+# In-memory job store: job_id → PlanJobResponse
+_jobs: dict[str, PlanJobResponse] = {}
 
-@router.post("/generate", response_model=PlanResponse)
-async def generate(request: GeneratePlanRequest):
-    # Fetch athlete profile
-    profile_result = (
-        supabase.table("athlete_profiles")
-        .select("*")
-        .eq("user_id", request.user_id)
-        .single()
-        .execute()
-    )
 
-    if not profile_result.data:
-        raise HTTPException(status_code=404, detail="Profile not found. Complete onboarding first.")
-
-    profile = profile_result.data
-
-    # Step 1 — Run Plan Architect to get phase blueprint
+async def _run_generation(job_id: str, user_id: str) -> None:
+    """Background task: run full plan generation pipeline and update job store."""
     try:
+        profile_result = (
+            supabase.table("athlete_profiles")
+            .select("*")
+            .eq("user_id", user_id)
+            .single()
+            .execute()
+        )
+        if not profile_result.data:
+            _jobs[job_id] = PlanJobResponse(job_id=job_id, status="error", error="Profile not found.")
+            return
+
+        profile = profile_result.data
         blueprint = await run_plan_architect(profile)
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail=f"Plan Architect failed: {exc}")
+        zones = compute_zones_math(ftp=0, lthr=0, css="")
+        all_weeks = await generate_full_plan(blueprint, profile, zones)
 
-    # Step 2 — Compute zones using defaults (profile doesn't have FTP/LTHR yet)
-    zones = compute_zones_math(ftp=0, lthr=0, css="")
+        all_sessions = []
+        for week in all_weeks:
+            for s in week.sessions:
+                all_sessions.append(s.model_dump())
 
-    # Step 3 — Generate all weeks via the week pipeline
-    all_weeks = await generate_full_plan(blueprint, profile, zones)
+        phase_data = []
+        cumulative_week = 0
+        for phase in blueprint.phases:
+            start_week = cumulative_week + 1
+            end_week = cumulative_week + phase.weeks
+            phase_data.append({
+                "name": phase.phase_name,
+                "weeks": phase.weeks,
+                "start_week": start_week,
+                "end_week": end_week,
+                "focus": phase.focus,
+                "preview": None,
+            })
+            cumulative_week = end_week
 
-    # Step 4 — Flatten sessions from all weeks into a single list
-    all_sessions = []
-    for week in all_weeks:
-        for s in week.sessions:
-            all_sessions.append(s.model_dump())
+        row = {
+            "user_id": user_id,
+            "weeks_until_race": blueprint.total_weeks,
+            "phases": phase_data,
+            "sessions": all_sessions,
+        }
 
-    # Step 5 — Build phase list from blueprint
-    phase_data = []
-    cumulative_week = 0
-    for phase in blueprint.phases:
-        start_week = cumulative_week + 1
-        end_week = cumulative_week + phase.weeks
-        phase_data.append({
-            "name": phase.phase_name,
-            "weeks": phase.weeks,
-            "start_week": start_week,
-            "end_week": end_week,
-            "focus": phase.focus,
-            "preview": None,
-        })
-        cumulative_week = end_week
+        supabase.table("plans").delete().eq("user_id", user_id).execute()
+        result = supabase.table("plans").insert(row).execute()
 
-    # Step 6 — weeks_until_race from blueprint
-    weeks_until_race = blueprint.total_weeks
+        if not result.data:
+            _jobs[job_id] = PlanJobResponse(job_id=job_id, status="error", error="Failed to save plan.")
+            return
 
-    # Step 7 — Save to Supabase
-    row = {
-        "user_id": request.user_id,
-        "weeks_until_race": weeks_until_race,
-        "phases": phase_data,
-        "sessions": all_sessions,
-    }
+        saved = result.data[0]
+        plan = PlanResponse(
+            id=saved["id"],
+            user_id=saved["user_id"],
+            generated_at=saved["generated_at"],
+            weeks_until_race=saved["weeks_until_race"],
+            phases=[Phase(**p) for p in (saved.get("phases") or [])],
+            sessions=[Session(**s) for s in saved["sessions"]],
+        )
+        _jobs[job_id] = PlanJobResponse(job_id=job_id, status="done", plan=plan)
 
-    supabase.table("plans").delete().eq("user_id", request.user_id).execute()
-    result = supabase.table("plans").insert(row).execute()
+    except Exception as exc:
+        _jobs[job_id] = PlanJobResponse(job_id=job_id, status="error", error=str(exc))
 
-    if not result.data:
-        raise HTTPException(status_code=500, detail="Failed to save plan")
 
-    saved = result.data[0]
-    return PlanResponse(
-        id=saved["id"],
-        user_id=saved["user_id"],
-        generated_at=saved["generated_at"],
-        weeks_until_race=saved["weeks_until_race"],
-        phases=[Phase(**p) for p in (saved.get("phases") or [])],
-        sessions=[Session(**s) for s in saved["sessions"]],
-    )
+@router.post("/generate", response_model=PlanJobResponse, status_code=202)
+async def generate(request: GeneratePlanRequest, background_tasks: BackgroundTasks):
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = PlanJobResponse(job_id=job_id, status="pending")
+    background_tasks.add_task(_run_generation, job_id, request.user_id)
+    return _jobs[job_id]
+
+
+@router.get("/job/{job_id}", response_model=PlanJobResponse)
+async def get_job_status(job_id: str):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return job
 
 
 @router.post("/session/{session_id}/expand", response_model=WorkoutDetail)
