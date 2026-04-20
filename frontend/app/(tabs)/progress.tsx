@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  TouchableOpacity,
   Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -61,22 +62,25 @@ const SPORT_COLORS = {
 } as const;
 
 const CHART_HEIGHT = 180;
-const CHART_WIDTH = SCREEN_WIDTH - 64; // card horizontal padding
 
 // ── Pure-RN line chart ────────────────────────────────────────────────────────
 
 type LineDataKey = "swim" | "bike" | "run";
 
-function toChartCoords(
+const SPORT_KEYS: LineDataKey[] = ["swim", "bike", "run"];
+
+function toCoords(
   points: ChartPoint[],
   key: LineDataKey,
   maxY: number,
   w: number,
   h: number,
 ) {
+  const n = points.length;
   return points.map((p, i) => ({
-    x: points.length < 2 ? w / 2 : (i / (points.length - 1)) * w,
-    y: h - (p[key] / maxY) * h,
+    x: n < 2 ? w / 2 : (i / (n - 1)) * w,
+    // clamp to avoid floating point below 0
+    y: h - Math.max(0, (p[key] / maxY) * h),
   }));
 }
 
@@ -89,97 +93,102 @@ function Polyline({
   color: string;
   strokeWidth?: number;
 }) {
-  const segments: React.ReactElement[] = [];
+  const elements: React.ReactElement[] = [];
+
   for (let i = 0; i < pts.length - 1; i++) {
-    const x1 = pts[i].x;
-    const y1 = pts[i].y;
-    const x2 = pts[i + 1].x;
-    const y2 = pts[i + 1].y;
+    const { x: x1, y: y1 } = pts[i];
+    const { x: x2, y: y2 } = pts[i + 1];
     const dx = x2 - x1;
     const dy = y2 - y1;
     const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.5) continue;
     const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-    segments.push(
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    elements.push(
       <View
-        key={i}
+        key={`s${i}`}
         style={{
           position: "absolute",
-          left: x1,
-          top: y1 - strokeWidth / 2,
+          left: mx - len / 2,
+          top: my - strokeWidth / 2,
           width: len,
           height: strokeWidth,
           backgroundColor: color,
           borderRadius: strokeWidth / 2,
-          transform: [
-            { translateX: len / 2 },
-            { rotate: `${angle}deg` },
-            { translateX: -(len / 2) },
-          ],
+          transform: [{ rotate: `${angle}deg` }],
         }}
       />,
     );
   }
-  // dots at each point
+
   pts.forEach((pt, i) => {
-    segments.push(
+    const r = strokeWidth + 0.5;
+    elements.push(
       <View
-        key={`dot-${i}`}
+        key={`d${i}`}
         style={{
           position: "absolute",
-          left: pt.x - strokeWidth,
-          top: pt.y - strokeWidth,
-          width: strokeWidth * 2,
-          height: strokeWidth * 2,
-          borderRadius: strokeWidth,
+          left: pt.x - r,
+          top: pt.y - r,
+          width: r * 2,
+          height: r * 2,
+          borderRadius: r,
           backgroundColor: color,
         }}
       />,
     );
   });
-  return <>{segments}</>;
+
+  return <>{elements}</>;
 }
 
 function LineChart({
   chartData,
   maxHours,
+  visible,
   colors,
 }: {
   chartData: ChartPoint[];
   maxHours: number;
+  visible: Record<LineDataKey, boolean>;
   colors: ThemeColors;
 }) {
-  const w = CHART_WIDTH;
+  const [w, setW] = useState(0);
   const h = CHART_HEIGHT;
   const maxY = maxHours * 1.15;
 
-  const swimPts = toChartCoords(chartData, "swim", maxY, w, h);
-  const bikePts = toChartCoords(chartData, "bike", maxY, w, h);
-  const runPts  = toChartCoords(chartData, "run",  maxY, w, h);
-
-  // y-axis gridlines at 0, 50%, 100%
-  const gridLines = [0, 0.5, 1].map((pct) => {
-    const y = h - pct * h;
-    return (
-      <View
-        key={pct}
-        style={{
-          position: "absolute",
-          left: 0,
-          top: y,
-          width: w,
-          height: 1,
-          backgroundColor: colors.darkGray,
-        }}
-      />
-    );
-  });
-
   return (
-    <View style={{ width: w, height: h, position: "relative" }}>
-      {gridLines}
-      <Polyline pts={swimPts} color={SPORT_COLORS.swim} />
-      <Polyline pts={bikePts} color={SPORT_COLORS.bike} />
-      <Polyline pts={runPts}  color={SPORT_COLORS.run}  />
+    <View
+      style={{ width: "100%", height: h }}
+      onLayout={(e) => setW(e.nativeEvent.layout.width)}
+    >
+      {w > 0 && (
+        <View style={{ width: w, height: h, position: "relative" }}>
+          {[0, 0.5, 1].map((pct) => (
+            <View
+              key={pct}
+              style={{
+                position: "absolute",
+                left: 0,
+                top: h - pct * h,
+                width: w,
+                height: 1,
+                backgroundColor: colors.darkGray,
+              }}
+            />
+          ))}
+          {SPORT_KEYS.map((key) =>
+            visible[key] ? (
+              <Polyline
+                key={key}
+                pts={toCoords(chartData, key, maxY, w, h)}
+                color={SPORT_COLORS[key]}
+              />
+            ) : null,
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -205,15 +214,37 @@ function SectionLabel({ label, colors }: { label: string; colors: ThemeColors })
   );
 }
 
-function ChartLegend({ colors }: { colors: ThemeColors }) {
+function SportToggle({
+  visible,
+  onToggle,
+  colors,
+}: {
+  visible: Record<LineDataKey, boolean>;
+  onToggle: (key: LineDataKey) => void;
+  colors: ThemeColors;
+}) {
   return (
-    <View style={legend.row}>
-      {(["Swim", "Bike", "Run"] as const).map((name) => (
-        <View key={name} style={legend.item}>
-          <View style={[legend.dot, { backgroundColor: SPORT_COLORS[name.toLowerCase() as keyof typeof SPORT_COLORS] }]} />
-          <Text style={[legend.label, { color: colors.lightGray }]}>{name}</Text>
-        </View>
-      ))}
+    <View style={toggle.row}>
+      {SPORT_KEYS.map((key) => {
+        const active = visible[key];
+        const color = SPORT_COLORS[key];
+        return (
+          <TouchableOpacity
+            key={key}
+            onPress={() => onToggle(key)}
+            style={[
+              toggle.pill,
+              { borderColor: color, backgroundColor: active ? color + "22" : "transparent" },
+            ]}
+            activeOpacity={0.7}
+          >
+            <View style={[toggle.dot, { backgroundColor: active ? color : colors.darkGray }]} />
+            <Text style={[toggle.label, { color: active ? color : colors.lightGray }]}>
+              {key.charAt(0).toUpperCase() + key.slice(1)}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }
@@ -267,6 +298,14 @@ export default function ProgressScreen() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<StravaInsightsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [visible, setVisible] = useState<Record<LineDataKey, boolean>>({
+    swim: true,
+    bike: true,
+    run: true,
+  });
+
+  const toggleSport = (key: LineDataKey) =>
+    setVisible((prev) => ({ ...prev, [key]: !prev[key] }));
 
   useEffect(() => {
     if (!user?.id) return;
@@ -363,9 +402,9 @@ export default function ProgressScreen() {
 
         <SectionLabel label="Weekly Training Hours" colors={colors} />
         <Card style={styles.chartCard}>
-          <ChartLegend colors={colors} />
+          <SportToggle visible={visible} onToggle={toggleSport} colors={colors} />
           <View style={{ marginTop: SPACING.sm }}>
-            <LineChart chartData={chartData} maxHours={maxHours} colors={colors} />
+            <LineChart chartData={chartData} maxHours={maxHours} visible={visible} colors={colors} />
           </View>
           <WeekLabels weeks={data.weekly_volumes} colors={colors} />
         </Card>
@@ -392,11 +431,19 @@ export default function ProgressScreen() {
 
 // ── Inline chart sub-styles ───────────────────────────────────────────────────
 
-const legend = StyleSheet.create({
-  row: { flexDirection: "row", gap: SPACING.lg, paddingHorizontal: SPACING.xs },
-  item: { flexDirection: "row", alignItems: "center", gap: SPACING.xs },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  label: { fontSize: FONT_SIZES.xs, fontWeight: "500" },
+const toggle = StyleSheet.create({
+  row: { flexDirection: "row", gap: SPACING.sm, paddingHorizontal: SPACING.xs },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.xs,
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: BORDER_RADIUS.xl,
+    borderWidth: 1,
+  },
+  dot: { width: 7, height: 7, borderRadius: 3.5 },
+  label: { fontSize: FONT_SIZES.xs, fontWeight: "600" },
 });
 
 const xlabels = StyleSheet.create({
