@@ -14,11 +14,16 @@ Public API:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
+
+from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_ollama import ChatOllama
 
 from models.blueprint import PhaseBlueprint, PlanBlueprint
-from models.workout_builder import WeekWithDescriptions
-from services.agents.workout_builder import run_workout_builder
+from models.workout_builder import SessionWithDescription, WeekWithDescriptions
 from services.plan_engine import DAYS_OF_WEEK
 from services.tools.allocate_week_structure import allocate_week_structure_logic
 from services.tools.calculate_weekly_target_volume import (
@@ -26,7 +31,13 @@ from services.tools.calculate_weekly_target_volume import (
 )
 from services.tools.validate_week_structure import validate_week_structure_logic
 
+load_dotenv()
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
+
 logger = logging.getLogger(__name__)
+
+_ZONE_LABELS = {1: "Recovery", 2: "Aerobic", 3: "Tempo", 4: "Threshold", 5: "VO2max"}
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +90,64 @@ def _fix_week_skeleton(week_skeleton: dict, issues: list[str]) -> dict:
     fixed_skeleton = dict(week_skeleton)
     fixed_skeleton["sessions"] = sessions
     return fixed_skeleton
+
+
+# ---------------------------------------------------------------------------
+# Batch description generator — ONE LLM call for all sessions
+# ---------------------------------------------------------------------------
+
+async def _generate_descriptions_batch(
+    skeletons: list[tuple[int, object, dict]],
+    athlete_profile: dict,
+) -> dict[str, str]:
+    """
+    Single LLM call: generate coaching descriptions for every session across
+    all weeks. Returns a dict mapping session_id → description string.
+    Falls back to placeholder text for any session the LLM missed.
+    """
+    all_sessions = []
+    for _wi, phase, skeleton in skeletons:
+        for s in skeleton.get("sessions", []):
+            all_sessions.append({
+                "id": s["id"],
+                "sport": s["sport"],
+                "duration_minutes": s["duration_minutes"],
+                "zone": s["zone"],
+                "zone_label": s["zone_label"],
+                "phase": getattr(phase, "phase_name", str(phase)),
+                "phase_focus": getattr(phase, "focus", ""),
+            })
+
+    system = (
+        "You are an expert Ironman 70.3 triathlon coach. "
+        "Return ONLY valid JSON — no markdown, no extra text."
+    )
+    human = (
+        f"Athlete: {athlete_profile.get('goal', 'recreational')} goal, "
+        f"{athlete_profile.get('experience', 'recreational')} experience. "
+        f"Strongest: {athlete_profile.get('strongest_discipline', 'bike')}, "
+        f"Weakest: {athlete_profile.get('weakest_discipline', 'swim')}.\n\n"
+        "Write a 2-3 sentence coaching description for each session below. "
+        "Include: effort feel, technique cue, and zone target in practical terms.\n\n"
+        f"Sessions:\n{json.dumps(all_sessions, indent=2)}\n\n"
+        'Return JSON: {"descriptions": [{"id": "<session_id>", "description": "<text>"}]}'
+    )
+
+    llm = ChatOllama(
+        model=OLLAMA_MODEL,
+        base_url=OLLAMA_HOST,
+        temperature=0,
+        format="json",
+        num_ctx=8192,
+    )
+
+    try:
+        response = await llm.ainvoke([SystemMessage(content=system), HumanMessage(content=human)])
+        data = json.loads(response.content)
+        return {item["id"]: item["description"] for item in data.get("descriptions", [])}
+    except Exception as exc:
+        logger.error("week_pipeline: batch description generation failed (%s) — using placeholders", exc)
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -291,49 +360,36 @@ async def generate_full_plan(
             )
             global_week_index += 1
 
-    # ── Phase 2: run all Workout Builder LLM calls in parallel ────────────────
+    # ── Phase 2: ONE batch LLM call for all session descriptions ─────────────
     logger.info(
-        "week_pipeline: launching %d Workout Builder calls in parallel", len(skeletons)
+        "week_pipeline: generating descriptions for %d sessions in one LLM call",
+        sum(len(sk.get("sessions", [])) for _, _, sk in skeletons),
     )
+    descriptions = await _generate_descriptions_batch(skeletons, athlete_profile)
 
-    _ZONE_LABELS = {1: "Recovery", 2: "Aerobic", 3: "Tempo", 4: "Threshold", 5: "VO2max"}
-
-    async def _build_week(week_index: int, phase, skeleton: dict) -> WeekWithDescriptions:
-        try:
-            return await run_workout_builder(
-                week_skeleton=skeleton,
-                phase_name=phase.phase_name,
-                phase_focus=phase.focus,
-                zones=zones,
-                athlete_profile=athlete_profile,
+    # ── Phase 3: assemble WeekWithDescriptions from skeletons + descriptions ──
+    results: list[WeekWithDescriptions] = []
+    for week_index, phase, skeleton in skeletons:
+        sessions = []
+        for s in skeleton.get("sessions", []):
+            desc = descriptions.get(s["id"]) or (
+                f"Zone {s['zone']} {s['sport']} session. "
+                f"{s['duration_minutes']} minutes at {_ZONE_LABELS.get(s['zone'], 'target')} effort."
             )
-        except ValueError as exc:
-            logger.error(
-                "week_pipeline: week %d Workout Builder failed (%s) — using skeleton fallback",
-                week_index,
-                exc,
-            )
-            from models.workout_builder import SessionWithDescription, WeekWithDescriptions as _WWD
-            fallback_sessions = [
-                SessionWithDescription(
-                    id=s["id"],
-                    week=s["week"],
-                    day=s["day"],
-                    sport=s["sport"],
-                    duration_minutes=s["duration_minutes"],
-                    zone=s["zone"],
-                    zone_label=s["zone_label"],
-                    description=(
-                        f"Zone {s['zone']} {s['sport']} session. "
-                        f"{s['duration_minutes']} minutes at {_ZONE_LABELS.get(s['zone'], 'target')} effort."
-                    ),
-                )
-                for s in skeleton.get("sessions", [])
-            ]
-            return _WWD(week_index=week_index, phase_name=phase.phase_name, sessions=fallback_sessions)
+            sessions.append(SessionWithDescription(
+                id=s["id"],
+                week=s["week"],
+                day=s["day"],
+                sport=s["sport"],
+                duration_minutes=s["duration_minutes"],
+                zone=s["zone"],
+                zone_label=s["zone_label"],
+                description=desc,
+            ))
+        results.append(WeekWithDescriptions(
+            week_index=week_index,
+            phase_name=getattr(phase, "phase_name", str(phase)),
+            sessions=sessions,
+        ))
 
-    results = await asyncio.gather(*[
-        _build_week(wi, ph, sk) for wi, ph, sk in skeletons
-    ])
-
-    return list(results)
+    return results
