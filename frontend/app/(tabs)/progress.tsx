@@ -143,6 +143,8 @@ function Polyline({
   return <>{elements}</>;
 }
 
+const Y_AXIS_WIDTH = 36;
+
 function LineChart({
   chartData,
   maxHours,
@@ -157,38 +159,51 @@ function LineChart({
   const [w, setW] = useState(0);
   const h = CHART_HEIGHT;
   const maxY = maxHours * 1.15;
+  const gridPcts = [0, 0.5, 1];
 
   return (
-    <View
-      style={{ width: "100%", height: h }}
-      onLayout={(e) => setW(e.nativeEvent.layout.width)}
-    >
-      {w > 0 && (
-        <View style={{ width: w, height: h, position: "relative" }}>
-          {[0, 0.5, 1].map((pct) => (
-            <View
-              key={pct}
-              style={{
-                position: "absolute",
-                left: 0,
-                top: h - pct * h,
-                width: w,
-                height: 1,
-                backgroundColor: colors.darkGray,
-              }}
-            />
-          ))}
-          {SPORT_KEYS.map((key) =>
-            visible[key] ? (
-              <Polyline
-                key={key}
-                pts={toCoords(chartData, key, maxY, w, h)}
-                color={SPORT_COLORS[key]}
+    <View style={{ flexDirection: "row", height: h }}>
+      {/* Y-axis labels */}
+      <View style={{ width: Y_AXIS_WIDTH, height: h, justifyContent: "space-between", alignItems: "flex-end", paddingRight: SPACING.xs }}>
+        {[...gridPcts].reverse().map((pct) => (
+          <Text key={pct} style={{ fontSize: 9, color: colors.lightGray }}>
+            {(maxY * pct).toFixed(1)}h
+          </Text>
+        ))}
+      </View>
+
+      {/* Chart canvas */}
+      <View
+        style={{ flex: 1, height: h }}
+        onLayout={(e) => setW(e.nativeEvent.layout.width)}
+      >
+        {w > 0 && (
+          <View style={{ width: w, height: h, position: "relative" }}>
+            {gridPcts.map((pct) => (
+              <View
+                key={pct}
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: h - pct * h,
+                  width: w,
+                  height: 1,
+                  backgroundColor: colors.darkGray,
+                }}
               />
-            ) : null,
-          )}
-        </View>
-      )}
+            ))}
+            {SPORT_KEYS.map((key) =>
+              visible[key] ? (
+                <Polyline
+                  key={key}
+                  pts={toCoords(chartData, key, maxY, w, h)}
+                  color={SPORT_COLORS[key]}
+                />
+              ) : null,
+            )}
+          </View>
+        )}
+      </View>
     </View>
   );
 }
