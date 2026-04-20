@@ -9,13 +9,13 @@ export const darkColors = {
 } as const;
 
 export const lightColors = {
-  primary: "#46F0D2",
+  primary: "#0D9488",
   background: "#F2F2F7",
-  accent: "#D4811E",
-  white: "#1C1C1E",
-  darkGray: "#E5E5EA",
+  accent: "#D97706",
+  white: "#111827",
+  darkGray: "#E2E8F0",
   mediumGray: "#FFFFFF",
-  lightGray: "#6E6E80",
+  lightGray: "#64748B",
 } as const;
 
 export type ThemeColors = typeof darkColors;
