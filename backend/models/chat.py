@@ -10,6 +10,7 @@ class ChatRequest(BaseModel):
     message: str
     history: list[ChatMessage] = []
     user_id: str = "00000000-0000-0000-0000-000000000001"
+    workout_context: str = ""  # pre-formatted workout detail injected by "Ask Coach"
 
 
 class ChatResponse(BaseModel):

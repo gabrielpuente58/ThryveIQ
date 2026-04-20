@@ -62,6 +62,10 @@ async def chat_message(request: ChatRequest):
         context_parts.append(f"[{tool_name}]:\n{result}")
         tools_used.append(tool_name)
 
+    # Inject workout context if provided (from "Ask Coach" button)
+    if request.workout_context:
+        context_parts.insert(0, f"[current_workout]:\n{request.workout_context}")
+
     # Build context string
     if context_parts:
         context = "Athlete data:\n\n" + "\n\n".join(context_parts)
