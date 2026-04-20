@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,8 +7,10 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from "react-native";
+import { useFocusEffect } from "expo-router";
 import { Screen } from "../components/Screen";
 import { SessionCard } from "../components/SessionCard";
+import { useAuth } from "../context/AuthContext";
 import { API_URL } from "../constants/api";
 import { COLORS, ThemeColors, SPACING, FONT_SIZES, BORDER_RADIUS } from "../constants/theme";
 
@@ -31,28 +33,30 @@ interface Plan {
 }
 
 export default function PlanScreen() {
+  const { user } = useAuth();
   const [plan, setPlan] = useState<Plan | null>(null);
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchPlan = async () => {
-      try {
-        const res = await fetch(
-          `${API_URL}/plans/current?user_id=00000000-0000-0000-0000-000000000001`
-        );
-        if (!res.ok) throw new Error("No plan found");
-        const data: Plan = await res.json();
-        setPlan(data);
-      } catch (err) {
-        setError("Could not load your plan. Generate one first.");
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchPlan();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      if (!user) return;
+      setLoading(true);
+      setError(null);
+      fetch(`${API_URL}/plans/current?user_id=${user.id}`)
+        .then((res) => {
+          if (!res.ok) throw new Error("No plan found");
+          return res.json();
+        })
+        .then((data: Plan) => {
+          setPlan(data);
+          setSelectedWeek(1);
+        })
+        .catch(() => setError("Could not load your plan. Generate one first."))
+        .finally(() => setLoading(false));
+    }, [user])
+  );
 
   if (loading) {
     return (
