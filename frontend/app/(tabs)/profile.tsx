@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Alert,
   TextInput,
   Platform,
+  Dimensions,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
@@ -55,7 +56,7 @@ const LABELS: Record<string, string> = {
   run: "Run",
 };
 
-const SPORT_COLORS: Record<string, string> = {
+const SPORT_COLORS_PROFILE: Record<string, string> = {
   swim: "#3B82F6",
   bike: "#22C55E",
   run: "#F97316",
@@ -63,6 +64,242 @@ const SPORT_COLORS: Record<string, string> = {
 
 const GOAL_OPTIONS = ["first_timer", "recreational", "competitive"] as const;
 const DISCIPLINE_OPTIONS = ["swim", "bike", "run"] as const;
+
+// ── Progress / chart types + constants ────────────────────────────────────────
+
+interface WeeklyVolume {
+  week_label: string;
+  swim_hours: number; bike_hours: number; run_hours: number; total_hours: number;
+  swim_miles: number; bike_miles: number; run_miles: number; total_miles: number;
+}
+interface SportBreakdown { swim_pct: number; bike_pct: number; run_pct: number; }
+interface StravaInsightsResponse {
+  connected: boolean;
+  weekly_volumes: WeeklyVolume[];
+  sport_breakdown: SportBreakdown;
+  total_activities: number;
+}
+interface ChartPoint { x: number; swim: number; bike: number; run: number; total: number; }
+
+type LineDataKey = "swim" | "bike" | "run" | "total";
+type ChartSelection = { idx: number; sport: LineDataKey } | null;
+
+const CHART_SPORT_COLORS = {
+  swim: "#3B82F6", bike: "#22C55E", run: "#F97316", total: "#A78BFA",
+} as const;
+const SPORT_KEYS: LineDataKey[] = ["total", "swim", "bike", "run"];
+const SPORT_HOURS_KEY: Record<LineDataKey, keyof WeeklyVolume> = {
+  swim: "swim_hours", bike: "bike_hours", run: "run_hours", total: "total_hours",
+};
+const SPORT_MILES_KEY: Record<LineDataKey, keyof WeeklyVolume> = {
+  swim: "swim_miles", bike: "bike_miles", run: "run_miles", total: "total_miles",
+};
+const SPORT_LABEL: Record<LineDataKey, string> = {
+  swim: "Swim", bike: "Bike", run: "Run", total: "Total",
+};
+
+const CHART_HEIGHT = 180;
+const Y_AXIS_WIDTH = 36;
+const TOOLTIP_WIDTH = 140;
+
+// ── Chart helper functions ────────────────────────────────────────────────────
+
+function toCoords(points: ChartPoint[], key: LineDataKey, maxY: number, w: number, h: number) {
+  const n = points.length;
+  return points.map((p, i) => ({
+    x: n < 2 ? w / 2 : (i / (n - 1)) * w,
+    y: h - Math.max(0, (p[key] / maxY) * h),
+  }));
+}
+
+function Polyline({
+  pts, color, strokeWidth = 2.5, selectedIdx, onDotPress,
+}: {
+  pts: { x: number; y: number }[];
+  color: string;
+  strokeWidth?: number;
+  selectedIdx: number | null;
+  onDotPress: (index: number) => void;
+}) {
+  const elements: React.ReactElement[] = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const { x: x1, y: y1 } = pts[i];
+    const { x: x2, y: y2 } = pts[i + 1];
+    const dx = x2 - x1; const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.5) continue;
+    const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    elements.push(
+      <View key={`s${i}`} style={{
+        position: "absolute", left: (x1 + x2) / 2 - len / 2,
+        top: (y1 + y2) / 2 - strokeWidth / 2, width: len, height: strokeWidth,
+        backgroundColor: color, borderRadius: strokeWidth / 2,
+        transform: [{ rotate: `${angle}deg` }],
+      }} />,
+    );
+  }
+  pts.forEach((pt, i) => {
+    const isSelected = selectedIdx === i;
+    const r = isSelected ? strokeWidth + 3 : strokeWidth + 0.5;
+    const hitR = 16;
+    elements.push(
+      <TouchableOpacity key={`d${i}`} onPress={() => onDotPress(i)}
+        style={{ position: "absolute", left: pt.x - hitR, top: pt.y - hitR,
+          width: hitR * 2, height: hitR * 2, alignItems: "center", justifyContent: "center" }}
+        activeOpacity={0.7}>
+        <View style={{ width: r * 2, height: r * 2, borderRadius: r,
+          backgroundColor: color, borderWidth: isSelected ? 2 : 0, borderColor: "#FFFFFF" }} />
+      </TouchableOpacity>,
+    );
+  });
+  return <>{elements}</>;
+}
+
+function LineChart({
+  chartData, weeklyData, maxHours, visible, colors,
+}: {
+  chartData: ChartPoint[]; weeklyData: WeeklyVolume[]; maxHours: number;
+  visible: Record<LineDataKey, boolean>; colors: ThemeColors;
+}) {
+  const [w, setW] = useState(0);
+  const [selection, setSelection] = useState<ChartSelection>(null);
+  const h = CHART_HEIGHT; const maxY = maxHours * 1.15;
+  const gridPcts = [0, 0.5, 1]; const n = chartData.length;
+  const xOf = (i: number) => (n < 2 ? w / 2 : (i / (n - 1)) * w);
+  const tooltipLeft = (idx: number) =>
+    Math.min(Math.max(xOf(idx) - TOOLTIP_WIDTH / 2, 0), w - TOOLTIP_WIDTH);
+  const handleDotPress = (sport: LineDataKey, idx: number) =>
+    setSelection((prev) => prev?.idx === idx && prev?.sport === sport ? null : { idx, sport });
+  const week = selection ? weeklyData[selection.idx] : null;
+  const sportColor = selection ? CHART_SPORT_COLORS[selection.sport] : colors.primary;
+
+  return (
+    <View style={{ flexDirection: "row", height: h + 48 }}>
+      <View style={{ width: Y_AXIS_WIDTH, height: h, justifyContent: "space-between",
+        alignItems: "flex-end", paddingRight: SPACING.xs }}>
+        {[...gridPcts].reverse().map((pct) => (
+          <Text key={pct} style={{ fontSize: 9, color: colors.lightGray }}>
+            {(maxY * pct).toFixed(1)}h
+          </Text>
+        ))}
+      </View>
+      <View style={{ flex: 1 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+        {w > 0 && (
+          <View style={{ width: w, height: h, position: "relative" }}>
+            {gridPcts.map((pct) => (
+              <View key={pct} style={{ position: "absolute", left: 0, top: h - pct * h,
+                width: w, height: 1, backgroundColor: colors.darkGray }} />
+            ))}
+            {SPORT_KEYS.map((key) => visible[key] ? (
+              <Polyline key={key} pts={toCoords(chartData, key, maxY, w, h)}
+                color={CHART_SPORT_COLORS[key]}
+                selectedIdx={selection?.sport === key ? selection.idx : null}
+                onDotPress={(idx) => handleDotPress(key, idx)} />
+            ) : null)}
+            {selection && (
+              <View pointerEvents="none" style={{ position: "absolute", left: xOf(selection.idx) - 1,
+                top: 0, width: 2, height: h, backgroundColor: sportColor + "50" }} />
+            )}
+            {week && selection && (
+              <View pointerEvents="none" style={{ position: "absolute", top: -52,
+                left: tooltipLeft(selection.idx), width: TOOLTIP_WIDTH,
+                backgroundColor: colors.mediumGray, borderRadius: BORDER_RADIUS.sm,
+                borderWidth: 1, borderColor: sportColor + "80",
+                paddingVertical: SPACING.xs, paddingHorizontal: SPACING.sm }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.xs, marginBottom: 2 }}>
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: sportColor }} />
+                  <Text style={{ fontSize: 9, color: colors.lightGray, fontWeight: "600" }}>
+                    {SPORT_LABEL[selection.sport]} · {week.week_label}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <Text style={{ fontSize: 11, color: colors.white, fontWeight: "700" }}>
+                    {(week[SPORT_HOURS_KEY[selection.sport]] as number).toFixed(1)}h
+                  </Text>
+                  <Text style={{ fontSize: 11, color: colors.white, fontWeight: "700" }}>
+                    {(week[SPORT_MILES_KEY[selection.sport]] as number).toFixed(1)} mi
+                  </Text>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function SportToggle({ visible, onToggle, colors }: {
+  visible: Record<LineDataKey, boolean>; onToggle: (k: LineDataKey) => void; colors: ThemeColors;
+}) {
+  return (
+    <View style={chartStyles.toggleRow}>
+      {SPORT_KEYS.map((key) => {
+        const active = visible[key]; const color = CHART_SPORT_COLORS[key];
+        return (
+          <TouchableOpacity key={key} onPress={() => onToggle(key)} activeOpacity={0.7}
+            style={[chartStyles.togglePill,
+              { borderColor: color, backgroundColor: active ? color + "22" : "transparent" }]}>
+            <View style={[chartStyles.toggleDot, { backgroundColor: active ? color : colors.darkGray }]} />
+            <Text style={[chartStyles.toggleLabel, { color: active ? color : colors.lightGray }]}>
+              {SPORT_LABEL[key]}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+function WeekLabels({ weeks, colors }: { weeks: WeeklyVolume[]; colors: ThemeColors }) {
+  const [w, setW] = useState(0);
+  return (
+    <View style={{ flexDirection: "row", marginTop: SPACING.xs, marginLeft: Y_AXIS_WIDTH }}
+      onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+      {weeks.map((wk, i) => (
+        <Text key={i} numberOfLines={1}
+          style={{ fontSize: 9, color: colors.lightGray, textAlign: "center",
+            width: w > 0 ? w / weeks.length : 0 }}>
+          {wk.week_label}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+function SportBreakdownRow({ name, pct, color, colors }: {
+  name: string; pct: number; color: string; colors: ThemeColors;
+}) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", paddingVertical: SPACING.sm }}>
+      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: color, marginRight: SPACING.sm }} />
+      <Text style={{ fontSize: FONT_SIZES.sm, color: colors.white, width: 36 }}>{name}</Text>
+      <Text style={{ fontSize: FONT_SIZES.sm, color: colors.lightGray, width: 36, textAlign: "right", marginRight: SPACING.sm }}>{pct}%</Text>
+      <View style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: colors.darkGray, overflow: "hidden" }}>
+        <View style={{ height: 6, borderRadius: 3, width: `${pct}%` as `${number}%`, backgroundColor: color }} />
+      </View>
+    </View>
+  );
+}
+
+function StatPill({ label, value, colors }: { label: string; value: string; colors: ThemeColors }) {
+  return (
+    <View style={[chartStyles.statPill, { backgroundColor: colors.darkGray }]}>
+      <Text style={{ fontSize: FONT_SIZES.lg, fontWeight: "700", color: colors.primary }}>{value}</Text>
+      <Text style={{ fontSize: FONT_SIZES.xs, color: colors.lightGray, marginTop: 2 }}>{label}</Text>
+    </View>
+  );
+}
+
+const chartStyles = StyleSheet.create({
+  toggleRow: { flexDirection: "row", gap: SPACING.sm },
+  togglePill: { flexDirection: "row", alignItems: "center", gap: SPACING.xs,
+    paddingVertical: SPACING.xs, paddingHorizontal: SPACING.sm,
+    borderRadius: BORDER_RADIUS.xl, borderWidth: 1 },
+  toggleDot: { width: 7, height: 7, borderRadius: 3.5 },
+  toggleLabel: { fontSize: FONT_SIZES.xs, fontWeight: "600" },
+  statPill: { flex: 1, borderRadius: BORDER_RADIUS.md, padding: SPACING.md, alignItems: "center" },
+});
 
 const MIN_RACE_DATE = new Date();
 MIN_RACE_DATE.setMonth(MIN_RACE_DATE.getMonth() + 1);
@@ -108,6 +345,14 @@ export default function ProfileScreen() {
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const [insights, setInsights] = useState<StravaInsightsResponse | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(true);
+  const [chartVisible, setChartVisible] = useState<Record<LineDataKey, boolean>>({
+    total: true, swim: true, bike: true, run: true,
+  });
+  const toggleChartSport = (key: LineDataKey) =>
+    setChartVisible((prev) => ({ ...prev, [key]: !prev[key] }));
+
   useEffect(() => {
     if (!user) {
       setLoading(false);
@@ -128,6 +373,12 @@ export default function ProfileScreen() {
         }
       })
       .catch(() => {});
+
+    fetch(`${API_URL}/strava/insights?user_id=${user.id}`)
+      .then((res) => res.json())
+      .then((data) => setInsights(data))
+      .catch(() => {})
+      .finally(() => setInsightsLoading(false));
   }, [user]);
 
   const handleConnectStrava = async () => {
@@ -417,6 +668,42 @@ export default function ProfileScreen() {
         {/* ── VIEW MODE ── */}
         {!editing && (
           <>
+            {/* Progress section */}
+            {insights?.connected && insights.weekly_volumes.length > 0 && (() => {
+              const totalHours = insights.weekly_volumes.reduce((s, w) => s + w.total_hours, 0);
+              const totalMiles = insights.weekly_volumes.reduce((s, w) => s + w.total_miles, 0);
+              const maxHours = Math.max(...insights.weekly_volumes.map((w) => w.total_hours), 1);
+              const chartData: ChartPoint[] = insights.weekly_volumes.map((w, i) => ({
+                x: i, swim: w.swim_hours, bike: w.bike_hours, run: w.run_hours, total: w.total_hours,
+              }));
+              return (
+                <>
+                  <Text style={styles.sectionLabel}>Training Progress</Text>
+                  <View style={styles.statsRow}>
+                    <StatPill label="Activities" value={String(insights.total_activities)} colors={colors} />
+                    <StatPill label="Total Hours" value={totalHours.toFixed(1)} colors={colors} />
+                    <StatPill label="Total Miles" value={totalMiles.toFixed(1)} colors={colors} />
+                  </View>
+                  <Card style={[styles.section, { paddingBottom: SPACING.xs }]}>
+                    <SportToggle visible={chartVisible} onToggle={toggleChartSport} colors={colors} />
+                    <View style={{ marginTop: SPACING.sm }}>
+                      <LineChart chartData={chartData} weeklyData={insights.weekly_volumes}
+                        maxHours={maxHours} visible={chartVisible} colors={colors} />
+                    </View>
+                    <WeekLabels weeks={insights.weekly_volumes} colors={colors} />
+                  </Card>
+                  <Card style={styles.section}>
+                    <Text style={styles.sectionTitle}>Sport Mix · 8 weeks</Text>
+                    <SportBreakdownRow name="Swim" pct={insights.sport_breakdown.swim_pct} color={CHART_SPORT_COLORS.swim} colors={colors} />
+                    <View style={styles.divider} />
+                    <SportBreakdownRow name="Bike" pct={insights.sport_breakdown.bike_pct} color={CHART_SPORT_COLORS.bike} colors={colors} />
+                    <View style={styles.divider} />
+                    <SportBreakdownRow name="Run"  pct={insights.sport_breakdown.run_pct}  color={CHART_SPORT_COLORS.run}  colors={colors} />
+                  </Card>
+                </>
+              );
+            })()}
+
             {profile && (
               <Card style={styles.section}>
                 <Text style={styles.sectionTitle}>Training</Text>
@@ -514,7 +801,7 @@ function DisciplineItem({ label, sport, icon, colors }: { label: string; sport: 
     <View style={{ flex: 1, gap: SPACING.xs }}>
       <Text style={{ fontSize: FONT_SIZES.xs, color: colors.lightGray }}>{label}</Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.xs }}>
-        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: SPORT_COLORS[sport] }} />
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: SPORT_COLORS_PROFILE[sport] }} />
         <Ionicons name={icon as never} size={14} color={colors.lightGray} />
         <Text style={{ fontSize: FONT_SIZES.md, fontWeight: "600", color: colors.white }}>{LABELS[sport] ?? sport}</Text>
       </View>
@@ -581,6 +868,23 @@ const makeStyles = (colors: ThemeColors) =>
       fontSize: FONT_SIZES.sm,
       marginTop: SPACING.sm,
       fontWeight: "600",
+    },
+    sectionLabel: {
+      fontSize: FONT_SIZES.xs,
+      fontWeight: "600",
+      color: colors.lightGray,
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
+      marginBottom: SPACING.sm,
+    },
+    statsRow: {
+      flexDirection: "row",
+      gap: SPACING.sm,
+      marginBottom: SPACING.md,
+    },
+    divider: {
+      height: 1,
+      backgroundColor: colors.darkGray,
     },
     section: {
       marginBottom: SPACING.md,
