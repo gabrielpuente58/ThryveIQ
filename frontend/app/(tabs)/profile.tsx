@@ -501,17 +501,33 @@ export default function ProfileScreen() {
               onPress: async () => {
                 setGenerating(true);
                 try {
-                  const planRes = await fetch(`${API_URL}/plans/generate`, {
+                  const kickoffRes = await fetch(`${API_URL}/plans/generate`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ user_id: user.id }),
                   });
-                  if (!planRes.ok) throw new Error("Plan generation failed");
+                  if (!kickoffRes.ok) throw new Error("Failed to start plan generation");
+                  const { job_id } = await kickoffRes.json();
+
+                  // Poll every 5s until done or error
+                  await new Promise<void>((resolve, reject) => {
+                    const interval = setInterval(async () => {
+                      try {
+                        const statusRes = await fetch(`${API_URL}/plans/job/${job_id}`);
+                        if (!statusRes.ok) { clearInterval(interval); reject(new Error("Job not found")); return; }
+                        const job = await statusRes.json();
+                        if (job.status === "done") { clearInterval(interval); resolve(); }
+                        else if (job.status === "error") { clearInterval(interval); reject(new Error(job.error || "Generation failed")); }
+                      } catch (e) { clearInterval(interval); reject(e); }
+                    }, 5000);
+                  });
+
                   setGenerating(false);
                   router.replace("/(tabs)/plan");
-                } catch {
+                } catch (e: unknown) {
                   setGenerating(false);
-                  Alert.alert("Error", "Could not generate plan. Please try again.");
+                  const msg = e instanceof Error ? e.message : "Could not generate plan.";
+                  Alert.alert("Error", msg);
                 }
               },
             },
