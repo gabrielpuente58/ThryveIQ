@@ -393,3 +393,100 @@ async def generate_full_plan(
         ))
 
     return results
+
+
+async def generate_week_block(
+    from_week: int,
+    to_week: int,
+    stored_phases: list[dict],
+    athlete_profile: dict,
+    zones: dict,
+    previous_week_minutes: float = 0.0,
+) -> list[WeekWithDescriptions]:
+    """
+    Generate a specific range of weeks [from_week, to_week] using stored phase data.
+
+    Used for incremental (block-by-block) plan generation. `stored_phases` comes
+    directly from the Supabase plans.phases column and must include
+    weekly_structure_template, focus, start_week, end_week.
+    """
+    base_weekly_hours: float = float(athlete_profile.get("weekly_hours", 8.0))
+    days_available: int = int(athlete_profile.get("days_available", 5))
+    strongest: str = athlete_profile.get("strongest_discipline", "bike")
+    weakest: str = athlete_profile.get("weakest_discipline", "swim")
+
+    def _phase_for_week(week_num: int) -> dict:
+        for p in stored_phases:
+            if p["start_week"] <= week_num <= p["end_week"]:
+                return p
+        return stored_phases[-1] if stored_phases else {}
+
+    skeletons: list[tuple[int, object, dict]] = []
+    prev_minutes = previous_week_minutes
+
+    for week_index in range(from_week, to_week + 1):
+        phase = _phase_for_week(week_index)
+        phase_name = phase.get("name", "Base")
+        template = phase.get("weekly_structure_template", {"swim": 2, "bike": 3, "run": 3})
+
+        volume_result = calculate_weekly_target_volume_math(
+            week_index=week_index,
+            phase_name=phase_name,
+            base_weekly_hours=base_weekly_hours,
+            previous_week_hours=prev_minutes / 60.0,
+        )
+        target_hours: float = volume_result["target_hours"]
+
+        week_skeleton = allocate_week_structure_logic(
+            week_index=week_index,
+            phase_name=phase_name,
+            weekly_structure_template=template,
+            target_hours=target_hours,
+            days_available=days_available,
+            strongest_discipline=strongest,
+            weakest_discipline=weakest,
+        )
+
+        if prev_minutes > 0:
+            week_skeleton["previous_week_minutes"] = prev_minutes
+
+        retries_left = 2
+        while retries_left >= 0:
+            validation = validate_week_structure_logic(week_skeleton)
+            if validation["valid"]:
+                break
+            if retries_left > 0:
+                week_skeleton = _fix_week_skeleton(week_skeleton, validation["issues"])
+            retries_left -= 1
+
+        skeletons.append((week_index, phase, week_skeleton))
+        prev_minutes = float(sum(s["duration_minutes"] for s in week_skeleton.get("sessions", [])))
+
+    # Reuse the batch description approach
+    descriptions = await _generate_descriptions_batch(skeletons, athlete_profile)
+
+    results: list[WeekWithDescriptions] = []
+    for week_index, phase, skeleton in skeletons:
+        sessions = []
+        for s in skeleton.get("sessions", []):
+            desc = descriptions.get(s["id"]) or (
+                f"Zone {s['zone']} {s['sport']} session. "
+                f"{s['duration_minutes']} minutes at {_ZONE_LABELS.get(s['zone'], 'target')} effort."
+            )
+            sessions.append(SessionWithDescription(
+                id=s["id"],
+                week=s["week"],
+                day=s["day"],
+                sport=s["sport"],
+                duration_minutes=s["duration_minutes"],
+                zone=s["zone"],
+                zone_label=s["zone_label"],
+                description=desc,
+            ))
+        results.append(WeekWithDescriptions(
+            week_index=week_index,
+            phase_name=phase.get("name", "Base") if isinstance(phase, dict) else getattr(phase, "phase_name", "Base"),
+            sessions=sessions,
+        ))
+
+    return results

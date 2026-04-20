@@ -22,6 +22,8 @@ class Phase(BaseModel):
     end_week: int
     focus: str
     preview: Optional[str] = None
+    weekly_structure_template: dict = {}
+    intensity_distribution_target: str = "80/20"
 
 
 class PlanResponse(BaseModel):
@@ -29,6 +31,7 @@ class PlanResponse(BaseModel):
     user_id: str
     generated_at: Optional[datetime] = None
     weeks_until_race: int
+    weeks_generated: int = 0
     phases: list[Phase]
     sessions: list[Session]
 
@@ -36,6 +39,10 @@ class PlanResponse(BaseModel):
 class GeneratePlanRequest(BaseModel):
     user_id: str
     max_weeks: Optional[int] = None
+
+
+class GenerateNextBlockRequest(BaseModel):
+    user_id: str
 
 
 class PlanJobResponse(BaseModel):
