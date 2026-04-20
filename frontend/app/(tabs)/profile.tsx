@@ -448,6 +448,7 @@ export default function ProfileScreen() {
   const handleSave = async () => {
     if (!user || !draft || !profile) return;
     setSaving(true);
+    const raceDateChanged = draft.race_date !== profile.race_date;
     try {
       const payload: Record<string, string | number> = {};
 
@@ -457,7 +458,7 @@ export default function ProfileScreen() {
         payload.strongest_discipline = draft.strongest_discipline;
       if (draft.weakest_discipline !== profile.weakest_discipline)
         payload.weakest_discipline = draft.weakest_discipline;
-      if (draft.race_date !== profile.race_date) payload.race_date = draft.race_date;
+      if (raceDateChanged) payload.race_date = draft.race_date;
 
       const parsedHours = parseFloat(draft.weekly_hours);
       if (!isNaN(parsedHours) && parsedHours !== profile.weekly_hours)
@@ -487,6 +488,32 @@ export default function ProfileScreen() {
       });
       setEditing(false);
       setDraft(null);
+
+      if (raceDateChanged) {
+        Alert.alert(
+          "Race Date Updated",
+          "Would you like to generate a new training plan for your updated race date?",
+          [
+            { text: "Not Now", style: "cancel" },
+            {
+              text: "Generate Plan",
+              onPress: async () => {
+                try {
+                  const planRes = await fetch(`${API_URL}/plans/generate`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ user_id: user.id }),
+                  });
+                  if (!planRes.ok) throw new Error("Plan generation failed");
+                  Alert.alert("Done", "Your new training plan is ready!");
+                } catch {
+                  Alert.alert("Error", "Could not generate plan. Please try again.");
+                }
+              },
+            },
+          ]
+        );
+      }
     } catch {
       Alert.alert("Error", "Could not save changes.");
     } finally {
