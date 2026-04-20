@@ -8,6 +8,7 @@ import {
   Platform,
   TouchableOpacity,
   ActivityIndicator,
+  Keyboard,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -122,26 +123,28 @@ export default function ChatScreen() {
 
   return (
     <Screen style={styles.screen}>
-      <View style={styles.header}>
-        <Text style={styles.title}>AI Coach</Text>
-        <Text style={styles.subtitle}>Your personal triathlon trainer</Text>
-      </View>
-
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={(item) => item.id}
-        style={styles.messageList}
-        contentContainerStyle={styles.messageListContent}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
-        keyboardDismissMode="on-drag"
-      />
-
       <KeyboardAvoidingView
+        style={styles.keyboardView}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       >
+        <View style={styles.header}>
+          <Text style={styles.title}>AI Coach</Text>
+          <Text style={styles.subtitle}>Your personal triathlon trainer</Text>
+        </View>
+
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={(item) => item.id}
+          style={styles.messageList}
+          contentContainerStyle={styles.messageListContent}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+        />
+
         <View style={styles.inputContainer}>
           <View style={styles.inputRow}>
             <View style={styles.inputWrapper}>
@@ -157,7 +160,7 @@ export default function ChatScreen() {
             </View>
             <TouchableOpacity
               style={[styles.sendButton, (!inputText.trim() || isLoading) && styles.sendButtonDisabled]}
-              onPress={handleSend}
+              onPress={() => { Keyboard.dismiss(); handleSend(); }}
               disabled={!inputText.trim() || isLoading}
               activeOpacity={0.7}
             >
@@ -177,6 +180,7 @@ export default function ChatScreen() {
 const makeStyles = (colors: ThemeColors) =>
   StyleSheet.create({
     screen: { padding: 0 },
+    keyboardView: { flex: 1 },
     header: {
       padding: SPACING.md,
       paddingTop: SPACING.lg,
