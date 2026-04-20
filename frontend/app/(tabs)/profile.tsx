@@ -65,7 +65,7 @@ const SPORT_COLORS_PROFILE: Record<string, string> = {
 const GOAL_OPTIONS = ["first_timer", "recreational", "competitive"] as const;
 const DISCIPLINE_OPTIONS = ["swim", "bike", "run"] as const;
 
-// ── Progress / chart types + constants ────────────────────────────────────────
+// ── Progress / chart types ────────────────────────────────────────────────────
 
 interface WeeklyVolume {
   week_label: string;
@@ -79,227 +79,124 @@ interface StravaInsightsResponse {
   sport_breakdown: SportBreakdown;
   total_activities: number;
 }
-interface ChartPoint { x: number; swim: number; bike: number; run: number; total: number; }
 
-type LineDataKey = "swim" | "bike" | "run" | "total";
-type ChartSelection = { idx: number; sport: LineDataKey } | null;
+const BAR_CHART_HEIGHT = 160;
+const SPORT_SEGMENTS = [
+  { key: "run" as const,  hours: "run_hours" as const,  miles: "run_miles" as const,  color: "#F97316", label: "Run" },
+  { key: "bike" as const, hours: "bike_hours" as const, miles: "bike_miles" as const, color: "#22C55E", label: "Bike" },
+  { key: "swim" as const, hours: "swim_hours" as const, miles: "swim_miles" as const, color: "#3B82F6", label: "Swim" },
+];
 
-const CHART_SPORT_COLORS = {
-  swim: "#3B82F6", bike: "#22C55E", run: "#F97316", total: "#A78BFA",
-} as const;
-const SPORT_KEYS: LineDataKey[] = ["total", "swim", "bike", "run"];
-const SPORT_HOURS_KEY: Record<LineDataKey, keyof WeeklyVolume> = {
-  swim: "swim_hours", bike: "bike_hours", run: "run_hours", total: "total_hours",
-};
-const SPORT_MILES_KEY: Record<LineDataKey, keyof WeeklyVolume> = {
-  swim: "swim_miles", bike: "bike_miles", run: "run_miles", total: "total_miles",
-};
-const SPORT_LABEL: Record<LineDataKey, string> = {
-  swim: "Swim", bike: "Bike", run: "Run", total: "Total",
-};
-
-const CHART_HEIGHT = 180;
-const Y_AXIS_WIDTH = 36;
-const TOOLTIP_WIDTH = 140;
-
-// ── Chart helper functions ────────────────────────────────────────────────────
-
-function toCoords(points: ChartPoint[], key: LineDataKey, maxY: number, w: number, h: number) {
-  const n = points.length;
-  return points.map((p, i) => ({
-    x: n < 2 ? w / 2 : (i / (n - 1)) * w,
-    y: h - Math.max(0, (p[key] / maxY) * h),
-  }));
-}
-
-function Polyline({
-  pts, color, strokeWidth = 2.5, selectedIdx, onDotPress,
-}: {
-  pts: { x: number; y: number }[];
-  color: string;
-  strokeWidth?: number;
-  selectedIdx: number | null;
-  onDotPress: (index: number) => void;
-}) {
-  const elements: React.ReactElement[] = [];
-  for (let i = 0; i < pts.length - 1; i++) {
-    const { x: x1, y: y1 } = pts[i];
-    const { x: x2, y: y2 } = pts[i + 1];
-    const dx = x2 - x1; const dy = y2 - y1;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len < 0.5) continue;
-    const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-    elements.push(
-      <View key={`s${i}`} style={{
-        position: "absolute", left: (x1 + x2) / 2 - len / 2,
-        top: (y1 + y2) / 2 - strokeWidth / 2, width: len, height: strokeWidth,
-        backgroundColor: color, borderRadius: strokeWidth / 2,
-        transform: [{ rotate: `${angle}deg` }],
-      }} />,
-    );
-  }
-  pts.forEach((pt, i) => {
-    const isSelected = selectedIdx === i;
-    const r = isSelected ? strokeWidth + 3 : strokeWidth + 0.5;
-    const hitR = 16;
-    elements.push(
-      <TouchableOpacity key={`d${i}`} onPress={() => onDotPress(i)}
-        style={{ position: "absolute", left: pt.x - hitR, top: pt.y - hitR,
-          width: hitR * 2, height: hitR * 2, alignItems: "center", justifyContent: "center" }}
-        activeOpacity={0.7}>
-        <View style={{ width: r * 2, height: r * 2, borderRadius: r,
-          backgroundColor: color, borderWidth: isSelected ? 2 : 0, borderColor: "#FFFFFF" }} />
-      </TouchableOpacity>,
-    );
-  });
-  return <>{elements}</>;
-}
-
-function LineChart({
-  chartData, weeklyData, maxHours, visible, colors,
-}: {
-  chartData: ChartPoint[]; weeklyData: WeeklyVolume[]; maxHours: number;
-  visible: Record<LineDataKey, boolean>; colors: ThemeColors;
-}) {
-  const [w, setW] = useState(0);
-  const [selection, setSelection] = useState<ChartSelection>(null);
-  const h = CHART_HEIGHT; const maxY = maxHours * 1.15;
-  const gridPcts = [0, 0.5, 1]; const n = chartData.length;
-  const xOf = (i: number) => (n < 2 ? w / 2 : (i / (n - 1)) * w);
-  const tooltipLeft = (idx: number) =>
-    Math.min(Math.max(xOf(idx) - TOOLTIP_WIDTH / 2, 0), w - TOOLTIP_WIDTH);
-  const handleDotPress = (sport: LineDataKey, idx: number) =>
-    setSelection((prev) => prev?.idx === idx && prev?.sport === sport ? null : { idx, sport });
-  const week = selection ? weeklyData[selection.idx] : null;
-  const sportColor = selection ? CHART_SPORT_COLORS[selection.sport] : colors.primary;
+function WeeklyBarChart({ weeks, colors }: { weeks: WeeklyVolume[]; colors: ThemeColors }) {
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const maxHours = Math.max(...weeks.map((w) => w.total_hours), 1);
+  const gridLines = [maxHours, maxHours / 2];
+  const selected = selectedIdx !== null ? weeks[selectedIdx] : null;
 
   return (
-    <View style={{ flexDirection: "row", height: h + 48 }}>
-      <View style={{ width: Y_AXIS_WIDTH, height: h, justifyContent: "space-between",
-        alignItems: "flex-end", paddingRight: SPACING.xs }}>
-        {[...gridPcts].reverse().map((pct) => (
-          <Text key={pct} style={{ fontSize: 9, color: colors.lightGray }}>
-            {(maxY * pct).toFixed(1)}h
+    <View>
+      <View style={{ flexDirection: "row" }}>
+        {/* Y-axis labels */}
+        <View style={{ width: 30, height: BAR_CHART_HEIGHT, justifyContent: "space-between",
+          alignItems: "flex-end", paddingRight: 6, paddingBottom: 2 }}>
+          {gridLines.map((v) => (
+            <Text key={v} style={{ fontSize: 9, color: colors.lightGray }}>{v.toFixed(0)}h</Text>
+          ))}
+          <Text style={{ fontSize: 9, color: colors.lightGray }}>0h</Text>
+        </View>
+
+        {/* Bars + grid */}
+        <View style={{ flex: 1, height: BAR_CHART_HEIGHT, position: "relative" }}>
+          {/* Grid lines */}
+          {[1, 0.5, 0].map((pct) => (
+            <View key={pct} style={{ position: "absolute", left: 0, right: 0,
+              top: BAR_CHART_HEIGHT * (1 - pct), height: 1, backgroundColor: colors.darkGray }} />
+          ))}
+
+          {/* Bar columns */}
+          <View style={{ flex: 1, flexDirection: "row", alignItems: "flex-end",
+            paddingHorizontal: 2, gap: 5, height: BAR_CHART_HEIGHT }}>
+            {weeks.map((week, i) => {
+              const total = week.total_hours;
+              const barH = total > 0 ? Math.max((total / maxHours) * BAR_CHART_HEIGHT, 3) : 3;
+              const isSelected = selectedIdx === i;
+              return (
+                <TouchableOpacity key={i} style={{ flex: 1, alignItems: "center", height: BAR_CHART_HEIGHT,
+                  justifyContent: "flex-end" }}
+                  onPress={() => setSelectedIdx(selectedIdx === i ? null : i)}
+                  activeOpacity={0.8}
+                >
+                  <View style={{ width: "100%", height: barH, borderRadius: 4, overflow: "hidden",
+                    opacity: selectedIdx !== null && !isSelected ? 0.4 : 1,
+                    borderWidth: isSelected ? 1.5 : 0, borderColor: colors.primary }}>
+                    {total > 0 ? SPORT_SEGMENTS.map(({ key, hours, color }) => {
+                      const segH = (week[hours] / total) * barH;
+                      return segH > 0 ? (
+                        <View key={key} style={{ width: "100%", height: segH, backgroundColor: color }} />
+                      ) : null;
+                    }) : (
+                      <View style={{ flex: 1, backgroundColor: colors.darkGray }} />
+                    )}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+
+      {/* Week labels */}
+      <View style={{ flexDirection: "row", marginLeft: 30, marginTop: SPACING.xs, gap: 5, paddingHorizontal: 2 }}>
+        {weeks.map((wk, i) => (
+          <Text key={i} numberOfLines={1} style={{ flex: 1, fontSize: 9, textAlign: "center",
+            color: selectedIdx === i ? colors.primary : colors.lightGray }}>
+            {wk.week_label}
           </Text>
         ))}
       </View>
-      <View style={{ flex: 1 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
-        {w > 0 && (
-          <View style={{ width: w, height: h, position: "relative" }}>
-            {gridPcts.map((pct) => (
-              <View key={pct} style={{ position: "absolute", left: 0, top: h - pct * h,
-                width: w, height: 1, backgroundColor: colors.darkGray }} />
-            ))}
-            {SPORT_KEYS.map((key) => visible[key] ? (
-              <Polyline key={key} pts={toCoords(chartData, key, maxY, w, h)}
-                color={CHART_SPORT_COLORS[key]}
-                selectedIdx={selection?.sport === key ? selection.idx : null}
-                onDotPress={(idx) => handleDotPress(key, idx)} />
-            ) : null)}
-            {selection && (
-              <View pointerEvents="none" style={{ position: "absolute", left: xOf(selection.idx) - 1,
-                top: 0, width: 2, height: h, backgroundColor: sportColor + "50" }} />
-            )}
-            {week && selection && (
-              <View pointerEvents="none" style={{ position: "absolute", top: -52,
-                left: tooltipLeft(selection.idx), width: TOOLTIP_WIDTH,
-                backgroundColor: colors.mediumGray, borderRadius: BORDER_RADIUS.sm,
-                borderWidth: 1, borderColor: sportColor + "80",
-                paddingVertical: SPACING.xs, paddingHorizontal: SPACING.sm }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.xs, marginBottom: 2 }}>
-                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: sportColor }} />
-                  <Text style={{ fontSize: 9, color: colors.lightGray, fontWeight: "600" }}>
-                    {SPORT_LABEL[selection.sport]} · {week.week_label}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text style={{ fontSize: 11, color: colors.white, fontWeight: "700" }}>
-                    {(week[SPORT_HOURS_KEY[selection.sport]] as number).toFixed(1)}h
-                  </Text>
-                  <Text style={{ fontSize: 11, color: colors.white, fontWeight: "700" }}>
-                    {(week[SPORT_MILES_KEY[selection.sport]] as number).toFixed(1)} mi
-                  </Text>
-                </View>
+
+      {/* Selected week detail */}
+      {selected && (
+        <View style={{ backgroundColor: colors.darkGray, borderRadius: BORDER_RADIUS.md,
+          padding: SPACING.md, marginTop: SPACING.md, gap: SPACING.xs }}>
+          <Text style={{ fontSize: FONT_SIZES.sm, fontWeight: "700", color: colors.white,
+            marginBottom: SPACING.xs }}>
+            Week of {selected.week_label}
+          </Text>
+          {SPORT_SEGMENTS.slice().reverse().map(({ label, hours, miles, color }) =>
+            selected[hours] > 0 ? (
+              <View key={label} style={{ flexDirection: "row", alignItems: "center", gap: SPACING.sm }}>
+                <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: color }} />
+                <Text style={{ fontSize: FONT_SIZES.sm, color: colors.lightGray, flex: 1 }}>{label}</Text>
+                <Text style={{ fontSize: FONT_SIZES.sm, color: colors.white, fontWeight: "600" }}>
+                  {selected[hours].toFixed(1)}h · {selected[miles].toFixed(1)} mi
+                </Text>
               </View>
-            )}
-          </View>
-        )}
-      </View>
-    </View>
-  );
-}
-
-function SportToggle({ visible, onToggle, colors }: {
-  visible: Record<LineDataKey, boolean>; onToggle: (k: LineDataKey) => void; colors: ThemeColors;
-}) {
-  return (
-    <View style={chartStyles.toggleRow}>
-      {SPORT_KEYS.map((key) => {
-        const active = visible[key]; const color = CHART_SPORT_COLORS[key];
-        return (
-          <TouchableOpacity key={key} onPress={() => onToggle(key)} activeOpacity={0.7}
-            style={[chartStyles.togglePill,
-              { borderColor: color, backgroundColor: active ? color + "22" : "transparent" }]}>
-            <View style={[chartStyles.toggleDot, { backgroundColor: active ? color : colors.darkGray }]} />
-            <Text style={[chartStyles.toggleLabel, { color: active ? color : colors.lightGray }]}>
-              {SPORT_LABEL[key]}
+            ) : null
+          )}
+          <View style={{ borderTopWidth: 1, borderTopColor: colors.mediumGray,
+            marginTop: SPACING.xs, paddingTop: SPACING.xs,
+            flexDirection: "row", justifyContent: "space-between" }}>
+            <Text style={{ fontSize: FONT_SIZES.sm, fontWeight: "700", color: colors.lightGray }}>Total</Text>
+            <Text style={{ fontSize: FONT_SIZES.sm, fontWeight: "700", color: colors.primary }}>
+              {selected.total_hours.toFixed(1)}h · {selected.total_miles.toFixed(1)} mi
             </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-}
+          </View>
+        </View>
+      )}
 
-function WeekLabels({ weeks, colors }: { weeks: WeeklyVolume[]; colors: ThemeColors }) {
-  const [w, setW] = useState(0);
-  return (
-    <View style={{ flexDirection: "row", marginTop: SPACING.xs, marginLeft: Y_AXIS_WIDTH }}
-      onLayout={(e) => setW(e.nativeEvent.layout.width)}>
-      {weeks.map((wk, i) => (
-        <Text key={i} numberOfLines={1}
-          style={{ fontSize: 9, color: colors.lightGray, textAlign: "center",
-            width: w > 0 ? w / weeks.length : 0 }}>
-          {wk.week_label}
-        </Text>
-      ))}
-    </View>
-  );
-}
-
-function SportBreakdownRow({ name, pct, color, colors }: {
-  name: string; pct: number; color: string; colors: ThemeColors;
-}) {
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", paddingVertical: SPACING.sm }}>
-      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: color, marginRight: SPACING.sm }} />
-      <Text style={{ fontSize: FONT_SIZES.sm, color: colors.white, width: 36 }}>{name}</Text>
-      <Text style={{ fontSize: FONT_SIZES.sm, color: colors.lightGray, width: 36, textAlign: "right", marginRight: SPACING.sm }}>{pct}%</Text>
-      <View style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: colors.darkGray, overflow: "hidden" }}>
-        <View style={{ height: 6, borderRadius: 3, width: `${pct}%` as `${number}%`, backgroundColor: color }} />
+      {/* Legend */}
+      <View style={{ flexDirection: "row", gap: SPACING.md, marginTop: SPACING.md }}>
+        {SPORT_SEGMENTS.slice().reverse().map(({ label, color }) => (
+          <View key={label} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+            <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: color }} />
+            <Text style={{ fontSize: FONT_SIZES.xs, color: colors.lightGray }}>{label}</Text>
+          </View>
+        ))}
       </View>
     </View>
   );
 }
-
-function StatPill({ label, value, colors }: { label: string; value: string; colors: ThemeColors }) {
-  return (
-    <View style={[chartStyles.statPill, { backgroundColor: colors.darkGray }]}>
-      <Text style={{ fontSize: FONT_SIZES.lg, fontWeight: "700", color: colors.primary }}>{value}</Text>
-      <Text style={{ fontSize: FONT_SIZES.xs, color: colors.lightGray, marginTop: 2 }}>{label}</Text>
-    </View>
-  );
-}
-
-const chartStyles = StyleSheet.create({
-  toggleRow: { flexDirection: "row", gap: SPACING.sm },
-  togglePill: { flexDirection: "row", alignItems: "center", gap: SPACING.xs,
-    paddingVertical: SPACING.xs, paddingHorizontal: SPACING.sm,
-    borderRadius: BORDER_RADIUS.xl, borderWidth: 1 },
-  toggleDot: { width: 7, height: 7, borderRadius: 3.5 },
-  toggleLabel: { fontSize: FONT_SIZES.xs, fontWeight: "600" },
-  statPill: { flex: 1, borderRadius: BORDER_RADIUS.md, padding: SPACING.md, alignItems: "center" },
-});
 
 const MIN_RACE_DATE = new Date();
 MIN_RACE_DATE.setMonth(MIN_RACE_DATE.getMonth() + 1);
@@ -347,11 +244,6 @@ export default function ProfileScreen() {
 
   const [insights, setInsights] = useState<StravaInsightsResponse | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(true);
-  const [chartVisible, setChartVisible] = useState<Record<LineDataKey, boolean>>({
-    total: true, swim: true, bike: true, run: true,
-  });
-  const toggleChartSport = (key: LineDataKey) =>
-    setChartVisible((prev) => ({ ...prev, [key]: !prev[key] }));
 
   useEffect(() => {
     if (!user) {
@@ -669,25 +561,14 @@ export default function ProfileScreen() {
         {!editing && (
           <>
             {/* Progress section */}
-            {insights?.connected && insights.weekly_volumes.length > 0 && (() => {
-              const maxHours = Math.max(...insights.weekly_volumes.map((w) => w.total_hours), 1);
-              const chartData: ChartPoint[] = insights.weekly_volumes.map((w, i) => ({
-                x: i, swim: w.swim_hours, bike: w.bike_hours, run: w.run_hours, total: w.total_hours,
-              }));
-              return (
-                <>
-                  <Text style={styles.sectionLabel}>Training Progress</Text>
-                  <Card style={[styles.section, { paddingBottom: SPACING.xs }]}>
-                    <SportToggle visible={chartVisible} onToggle={toggleChartSport} colors={colors} />
-                    <View style={{ marginTop: SPACING.sm }}>
-                      <LineChart chartData={chartData} weeklyData={insights.weekly_volumes}
-                        maxHours={maxHours} visible={chartVisible} colors={colors} />
-                    </View>
-                    <WeekLabels weeks={insights.weekly_volumes} colors={colors} />
-                  </Card>
-                </>
-              );
-            })()}
+            {insights?.connected && insights.weekly_volumes.length > 0 && (
+              <>
+                <Text style={styles.sectionLabel}>Training Progress</Text>
+                <Card style={styles.section}>
+                  <WeeklyBarChart weeks={insights.weekly_volumes} colors={colors} />
+                </Card>
+              </>
+            )}
 
             {profile && (
               <Card style={styles.section}>
