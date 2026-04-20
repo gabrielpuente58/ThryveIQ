@@ -670,8 +670,6 @@ export default function ProfileScreen() {
           <>
             {/* Progress section */}
             {insights?.connected && insights.weekly_volumes.length > 0 && (() => {
-              const totalHours = insights.weekly_volumes.reduce((s, w) => s + w.total_hours, 0);
-              const totalMiles = insights.weekly_volumes.reduce((s, w) => s + w.total_miles, 0);
               const maxHours = Math.max(...insights.weekly_volumes.map((w) => w.total_hours), 1);
               const chartData: ChartPoint[] = insights.weekly_volumes.map((w, i) => ({
                 x: i, swim: w.swim_hours, bike: w.bike_hours, run: w.run_hours, total: w.total_hours,
@@ -679,11 +677,6 @@ export default function ProfileScreen() {
               return (
                 <>
                   <Text style={styles.sectionLabel}>Training Progress</Text>
-                  <View style={styles.statsRow}>
-                    <StatPill label="Activities" value={String(insights.total_activities)} colors={colors} />
-                    <StatPill label="Total Hours" value={totalHours.toFixed(1)} colors={colors} />
-                    <StatPill label="Total Miles" value={totalMiles.toFixed(1)} colors={colors} />
-                  </View>
                   <Card style={[styles.section, { paddingBottom: SPACING.xs }]}>
                     <SportToggle visible={chartVisible} onToggle={toggleChartSport} colors={colors} />
                     <View style={{ marginTop: SPACING.sm }}>
@@ -691,14 +684,6 @@ export default function ProfileScreen() {
                         maxHours={maxHours} visible={chartVisible} colors={colors} />
                     </View>
                     <WeekLabels weeks={insights.weekly_volumes} colors={colors} />
-                  </Card>
-                  <Card style={styles.section}>
-                    <Text style={styles.sectionTitle}>Sport Mix · 8 weeks</Text>
-                    <SportBreakdownRow name="Swim" pct={insights.sport_breakdown.swim_pct} color={CHART_SPORT_COLORS.swim} colors={colors} />
-                    <View style={styles.divider} />
-                    <SportBreakdownRow name="Bike" pct={insights.sport_breakdown.bike_pct} color={CHART_SPORT_COLORS.bike} colors={colors} />
-                    <View style={styles.divider} />
-                    <SportBreakdownRow name="Run"  pct={insights.sport_breakdown.run_pct}  color={CHART_SPORT_COLORS.run}  colors={colors} />
                   </Card>
                 </>
               );
