@@ -13,6 +13,7 @@ class Session(BaseModel):
     zone_label: str
     description: str
     distance_yards: Optional[int] = None
+    intervals: list[dict] = []
 
 
 class Phase(BaseModel):

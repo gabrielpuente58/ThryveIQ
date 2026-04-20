@@ -5,6 +5,7 @@ The Workout Builder receives a pre-built week skeleton from the rule engine
 (sessions with day, sport, duration, zone already set) and fills in coaching
 descriptions. It cannot change any structural field — descriptions only.
 """
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -16,21 +17,11 @@ class SessionWithDescription(BaseModel):
     day: str = Field(description="Day of the week, e.g. 'Monday'.")
     sport: str = Field(description="Sport: swim | bike | run.")
     duration_minutes: int = Field(description="Session length in minutes.")
-    zone: int = Field(
-        description="Training zone (1-5).",
-        ge=1,
-        le=5,
-    )
-    zone_label: str = Field(
-        description="Human-readable zone label: Recovery | Aerobic | Tempo | Threshold | VO2max."
-    )
-    description: str = Field(
-        description=(
-            "2-3 sentence coaching description written by the LLM. "
-            "Should include: what the effort feels like, technique cues, "
-            "zone target, and pacing notes."
-        )
-    )
+    zone: int = Field(description="Training zone (1-5).", ge=1, le=5)
+    zone_label: str = Field(description="Human-readable zone label.")
+    description: str = Field(description="2-3 sentence coaching description.")
+    distance_yards: Optional[int] = None
+    intervals: list[dict] = []
 
 
 class WeekWithDescriptions(BaseModel):

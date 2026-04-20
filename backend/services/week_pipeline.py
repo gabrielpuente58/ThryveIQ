@@ -24,8 +24,9 @@ from langchain_ollama import ChatOllama
 
 from models.blueprint import PhaseBlueprint, PlanBlueprint
 from models.workout_builder import SessionWithDescription, WeekWithDescriptions
-from services.plan_engine import DAYS_OF_WEEK
+from services.plan_engine import DAYS_OF_WEEK, SWIM_YARDS_PER_MIN
 from services.tools.allocate_week_structure import allocate_week_structure_logic
+from services.workout_structure import build_workout_intervals
 from services.tools.calculate_weekly_target_volume import (
     calculate_weekly_target_volume_math,
 )
@@ -38,6 +39,30 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
 logger = logging.getLogger(__name__)
 
 _ZONE_LABELS = {1: "Recovery", 2: "Aerobic", 3: "Tempo", 4: "Threshold", 5: "VO2max"}
+_MAX_ZONE = {"first_timer": 3, "recreational": 5, "competitive": 5}
+
+
+def _apply_experience_cap(sessions: list[dict], experience: str) -> list[dict]:
+    """Cap zones to experience level max and update zone_label."""
+    max_z = _MAX_ZONE.get(experience, 5)
+    for s in sessions:
+        if s.get("zone", 2) > max_z:
+            s["zone"] = max_z
+            s["zone_label"] = _ZONE_LABELS[max_z]
+    return sessions
+
+
+def _attach_intervals(sessions: list[dict], experience: str) -> list[dict]:
+    """Build and attach structured intervals to each session dict in place."""
+    for s in sessions:
+        s["intervals"] = build_workout_intervals(
+            sport=s["sport"],
+            zone=s["zone"],
+            duration_minutes=s["duration_minutes"],
+            experience=experience,
+            distance_yards=s.get("distance_yards"),
+        )
+    return sessions
 
 
 # ---------------------------------------------------------------------------
@@ -122,13 +147,23 @@ async def _generate_descriptions_batch(
         "You are an expert Ironman 70.3 triathlon coach. "
         "Return ONLY valid JSON — no markdown, no extra text."
     )
+    experience = athlete_profile.get("experience", "recreational")
+    exp_guidance = {
+        "first_timer": "Use encouraging, beginner-friendly language. Focus on technique and effort feel. Keep it simple.",
+        "recreational": "Balanced tone. Include technique cues and performance targets.",
+        "competitive": "Performance-focused. Be precise about intensity targets, pacing strategy, and adaptation goals.",
+    }.get(experience, "")
+
     human = (
         f"Athlete: {athlete_profile.get('goal', 'recreational')} goal, "
-        f"{athlete_profile.get('experience', 'recreational')} experience. "
+        f"{experience} experience level. "
         f"Strongest: {athlete_profile.get('strongest_discipline', 'bike')}, "
-        f"Weakest: {athlete_profile.get('weakest_discipline', 'swim')}.\n\n"
-        "Write a 2-3 sentence coaching description for each session below. "
-        "Include: effort feel, technique cue, and zone target in practical terms.\n\n"
+        f"Weakest: {athlete_profile.get('weakest_discipline', 'swim')}.\n"
+        f"Coaching style: {exp_guidance}\n\n"
+        "Write a 2-3 sentence coaching description for each session. "
+        "Focus on the PURPOSE of the session and key execution cues. "
+        "Reference the zone and effort feel. Do not repeat the interval structure — "
+        "just describe why this session matters and what to focus on.\n\n"
         f"Sessions:\n{json.dumps(all_sessions, indent=2)}\n\n"
         'Return JSON: {"descriptions": [{"id": "<session_id>", "description": "<text>"}]}'
     )
@@ -360,14 +395,20 @@ async def generate_full_plan(
             )
             global_week_index += 1
 
-    # ── Phase 2: ONE batch LLM call for all session descriptions ─────────────
+    # ── Phase 2: experience cap + interval attachment ─────────────────────────
+    experience = athlete_profile.get("experience", "recreational")
+    for _, _, skeleton in skeletons:
+        _apply_experience_cap(skeleton.get("sessions", []), experience)
+        _attach_intervals(skeleton.get("sessions", []), experience)
+
+    # ── Phase 3: ONE batch LLM call for all session descriptions ─────────────
     logger.info(
         "week_pipeline: generating descriptions for %d sessions in one LLM call",
         sum(len(sk.get("sessions", [])) for _, _, sk in skeletons),
     )
     descriptions = await _generate_descriptions_batch(skeletons, athlete_profile)
 
-    # ── Phase 3: assemble WeekWithDescriptions from skeletons + descriptions ──
+    # ── Phase 4: assemble WeekWithDescriptions from skeletons + descriptions ──
     results: list[WeekWithDescriptions] = []
     for week_index, phase, skeleton in skeletons:
         sessions = []
@@ -385,6 +426,8 @@ async def generate_full_plan(
                 zone=s["zone"],
                 zone_label=s["zone_label"],
                 description=desc,
+                intervals=s.get("intervals", []),
+                distance_yards=s.get("distance_yards"),
             ))
         results.append(WeekWithDescriptions(
             week_index=week_index,
@@ -462,7 +505,12 @@ async def generate_week_block(
         skeletons.append((week_index, phase, week_skeleton))
         prev_minutes = float(sum(s["duration_minutes"] for s in week_skeleton.get("sessions", [])))
 
-    # Reuse the batch description approach
+    # Experience cap + intervals
+    experience = athlete_profile.get("experience", "recreational")
+    for _, _, skeleton in skeletons:
+        _apply_experience_cap(skeleton.get("sessions", []), experience)
+        _attach_intervals(skeleton.get("sessions", []), experience)
+
     descriptions = await _generate_descriptions_batch(skeletons, athlete_profile)
 
     results: list[WeekWithDescriptions] = []
@@ -482,6 +530,8 @@ async def generate_week_block(
                 zone=s["zone"],
                 zone_label=s["zone_label"],
                 description=desc,
+                intervals=s.get("intervals", []),
+                distance_yards=s.get("distance_yards"),
             ))
         results.append(WeekWithDescriptions(
             week_index=week_index,
