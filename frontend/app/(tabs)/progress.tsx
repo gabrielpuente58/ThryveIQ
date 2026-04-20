@@ -534,7 +534,7 @@ export default function ProgressScreen() {
           <WeekLabels weeks={data.weekly_volumes} colors={colors} />
         </Card>
 
-        <SectionLabel label="Volume by Sport" colors={colors} />
+        <SectionLabel label="Sport Mix (8-week total)" colors={colors} />
         <Card style={styles.section}>
           <SportBreakdownRow name="Swim" pct={data.sport_breakdown.swim_pct} color={SPORT_COLORS.swim} colors={colors} />
           <View style={[styles.divider, { backgroundColor: colors.darkGray }]} />
