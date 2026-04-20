@@ -3,6 +3,8 @@ from datetime import date, datetime
 
 DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
+SWIM_YARDS_PER_MIN = {1: 30, 2: 40, 3: 50, 4: 55, 5: 60}
+
 ZONE_LABELS = {
     1: "Recovery",
     2: "Aerobic",
@@ -153,6 +155,11 @@ def generate_plan(profile: dict) -> dict:
 
             session_id = f"w{week_num}_d{day_index + 1}_{sport}"
 
+            distance_yards = None
+            if sport == "swim":
+                yards_per_min = SWIM_YARDS_PER_MIN.get(zone, 40)
+                distance_yards = round(duration * yards_per_min / 25) * 25
+
             sessions.append({
                 "id": session_id,
                 "week": week_num,
@@ -162,6 +169,7 @@ def generate_plan(profile: dict) -> dict:
                 "zone": zone,
                 "zone_label": ZONE_LABELS[zone],
                 "description": description,
+                "distance_yards": distance_yards,
             })
 
     return {

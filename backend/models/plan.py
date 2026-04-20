@@ -12,6 +12,7 @@ class Session(BaseModel):
     zone: int
     zone_label: str
     description: str
+    distance_yards: Optional[int] = None
 
 
 class Phase(BaseModel):
