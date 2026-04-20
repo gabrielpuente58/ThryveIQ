@@ -13,6 +13,7 @@ Public API:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from models.blueprint import PhaseBlueprint, PlanBlueprint
@@ -230,42 +231,109 @@ async def generate_full_plan(
     """
     Generate all weeks for a full training plan from a PlanBlueprint.
 
-    Iterates phases in order, then weeks within each phase, calling generate_week
-    for each. Tracks previous_week_minutes across weeks so ramp-rate logic is
-    consistent end-to-end.
-
-    Args:
-        blueprint:       PlanBlueprint output from the Plan Architect Agent.
-        athlete_profile: Athlete guide rail dict (weekly_hours, days_available, etc.).
-        zones:           Athlete zone dict from compute_zones.
-
-    Returns:
-        Ordered list of WeekWithDescriptions — one entry per week, all phases.
+    Two-phase approach for maximum speed:
+      Phase 1 (sequential, instant): build all week skeletons deterministically
+        so ramp-rate calculations chain correctly week-over-week.
+      Phase 2 (parallel): fire all Workout Builder LLM calls concurrently via
+        asyncio.gather — reduces wall time from N×T to ~T regardless of week count.
     """
-    all_weeks: list[WeekWithDescriptions] = []
+    base_weekly_hours: float = float(athlete_profile.get("weekly_hours", 8.0))
+    days_available: int = int(athlete_profile.get("days_available", 5))
+    strongest: str = athlete_profile.get("strongest_discipline", "bike")
+    weakest: str = athlete_profile.get("weakest_discipline", "swim")
+
+    # ── Phase 1: build all skeletons (deterministic, no LLM) ──────────────────
+    skeletons: list[tuple[int, object, dict]] = []
     global_week_index = 1
     previous_week_minutes = 0.0
 
     for phase in blueprint.phases:
         logger.info(
-            "week_pipeline: starting phase '%s' (%d weeks)",
+            "week_pipeline: building skeletons for phase '%s' (%d weeks)",
             phase.phase_name,
             phase.weeks,
         )
-        for _week_in_phase in range(phase.weeks):
-            week = await generate_week(
+        for _ in range(phase.weeks):
+            volume_result = calculate_weekly_target_volume_math(
                 week_index=global_week_index,
-                phase=phase,
-                athlete_profile=athlete_profile,
-                zones=zones,
-                previous_week_minutes=previous_week_minutes,
+                phase_name=phase.phase_name,
+                base_weekly_hours=base_weekly_hours,
+                previous_week_hours=previous_week_minutes / 60.0,
             )
-            all_weeks.append(week)
+            target_hours: float = volume_result["target_hours"]
 
-            # Track total minutes for next week's ramp-rate calculation
+            week_skeleton = allocate_week_structure_logic(
+                week_index=global_week_index,
+                phase_name=phase.phase_name,
+                weekly_structure_template=phase.weekly_structure_template,
+                target_hours=target_hours,
+                days_available=days_available,
+                strongest_discipline=strongest,
+                weakest_discipline=weakest,
+            )
+
+            if previous_week_minutes > 0:
+                week_skeleton["previous_week_minutes"] = previous_week_minutes
+
+            # Validate + auto-fix
+            retries_left = 2
+            while retries_left >= 0:
+                validation = validate_week_structure_logic(week_skeleton)
+                if validation["valid"]:
+                    break
+                if retries_left > 0:
+                    week_skeleton = _fix_week_skeleton(week_skeleton, validation["issues"])
+                retries_left -= 1
+
+            skeletons.append((global_week_index, phase, week_skeleton))
             previous_week_minutes = float(
-                sum(s.duration_minutes for s in week.sessions)
+                sum(s["duration_minutes"] for s in week_skeleton.get("sessions", []))
             )
             global_week_index += 1
 
-    return all_weeks
+    # ── Phase 2: run all Workout Builder LLM calls in parallel ────────────────
+    logger.info(
+        "week_pipeline: launching %d Workout Builder calls in parallel", len(skeletons)
+    )
+
+    _ZONE_LABELS = {1: "Recovery", 2: "Aerobic", 3: "Tempo", 4: "Threshold", 5: "VO2max"}
+
+    async def _build_week(week_index: int, phase, skeleton: dict) -> WeekWithDescriptions:
+        try:
+            return await run_workout_builder(
+                week_skeleton=skeleton,
+                phase_name=phase.phase_name,
+                phase_focus=phase.focus,
+                zones=zones,
+                athlete_profile=athlete_profile,
+            )
+        except ValueError as exc:
+            logger.error(
+                "week_pipeline: week %d Workout Builder failed (%s) — using skeleton fallback",
+                week_index,
+                exc,
+            )
+            from models.workout_builder import SessionWithDescription, WeekWithDescriptions as _WWD
+            fallback_sessions = [
+                SessionWithDescription(
+                    id=s["id"],
+                    week=s["week"],
+                    day=s["day"],
+                    sport=s["sport"],
+                    duration_minutes=s["duration_minutes"],
+                    zone=s["zone"],
+                    zone_label=s["zone_label"],
+                    description=(
+                        f"Zone {s['zone']} {s['sport']} session. "
+                        f"{s['duration_minutes']} minutes at {_ZONE_LABELS.get(s['zone'], 'target')} effort."
+                    ),
+                )
+                for s in skeleton.get("sessions", [])
+            ]
+            return _WWD(week_index=week_index, phase_name=phase.phase_name, sessions=fallback_sessions)
+
+    results = await asyncio.gather(*[
+        _build_week(wi, ph, sk) for wi, ph, sk in skeletons
+    ])
+
+    return list(results)
