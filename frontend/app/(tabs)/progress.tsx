@@ -146,25 +146,40 @@ function Polyline({
 }
 
 const Y_AXIS_WIDTH = 36;
+const TOOLTIP_WIDTH = 140;
 
 function LineChart({
   chartData,
+  weeklyData,
   maxHours,
   visible,
   colors,
 }: {
   chartData: ChartPoint[];
+  weeklyData: WeeklyVolume[];
   maxHours: number;
   visible: Record<LineDataKey, boolean>;
   colors: ThemeColors;
 }) {
   const [w, setW] = useState(0);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const h = CHART_HEIGHT;
   const maxY = maxHours * 1.15;
   const gridPcts = [0, 0.5, 1];
+  const n = chartData.length;
+
+  const xOf = (i: number) => (n < 2 ? w / 2 : (i / (n - 1)) * w);
+
+  const selected = selectedIdx !== null ? weeklyData[selectedIdx] : null;
+
+  // Clamp tooltip so it doesn't overflow left or right edge
+  const tooltipLeft = (idx: number) => {
+    const x = xOf(idx);
+    return Math.min(Math.max(x - TOOLTIP_WIDTH / 2, 0), w - TOOLTIP_WIDTH);
+  };
 
   return (
-    <View style={{ flexDirection: "row", height: h }}>
+    <View style={{ flexDirection: "row", height: h + 48 }}>
       {/* Y-axis labels */}
       <View style={{ width: Y_AXIS_WIDTH, height: h, justifyContent: "space-between", alignItems: "flex-end", paddingRight: SPACING.xs }}>
         {[...gridPcts].reverse().map((pct) => (
@@ -176,11 +191,12 @@ function LineChart({
 
       {/* Chart canvas */}
       <View
-        style={{ flex: 1, height: h }}
+        style={{ flex: 1 }}
         onLayout={(e) => setW(e.nativeEvent.layout.width)}
       >
         {w > 0 && (
           <View style={{ width: w, height: h, position: "relative" }}>
+            {/* Gridlines */}
             {gridPcts.map((pct) => (
               <View
                 key={pct}
@@ -194,6 +210,8 @@ function LineChart({
                 }}
               />
             ))}
+
+            {/* Lines */}
             {SPORT_KEYS.map((key) =>
               visible[key] ? (
                 <Polyline
@@ -202,6 +220,70 @@ function LineChart({
                   color={SPORT_COLORS[key]}
                 />
               ) : null,
+            )}
+
+            {/* Selected column highlight */}
+            {selectedIdx !== null && (
+              <View
+                style={{
+                  position: "absolute",
+                  left: xOf(selectedIdx) - 1,
+                  top: 0,
+                  width: 2,
+                  height: h,
+                  backgroundColor: colors.lightGray + "60",
+                }}
+              />
+            )}
+
+            {/* Tappable column zones */}
+            {chartData.map((_, i) => {
+              const colW = n < 2 ? w : w / n;
+              const colX = n < 2 ? 0 : xOf(i) - colW / 2;
+              return (
+                <TouchableOpacity
+                  key={`tap${i}`}
+                  onPress={() => setSelectedIdx(selectedIdx === i ? null : i)}
+                  style={{
+                    position: "absolute",
+                    left: colX,
+                    top: 0,
+                    width: colW,
+                    height: h,
+                  }}
+                  activeOpacity={1}
+                />
+              );
+            })}
+
+            {/* Tooltip */}
+            {selected !== null && selectedIdx !== null && (
+              <View
+                style={{
+                  position: "absolute",
+                  top: -44,
+                  left: tooltipLeft(selectedIdx),
+                  width: TOOLTIP_WIDTH,
+                  backgroundColor: colors.mediumGray,
+                  borderRadius: BORDER_RADIUS.sm,
+                  borderWidth: 1,
+                  borderColor: colors.darkGray,
+                  paddingVertical: SPACING.xs,
+                  paddingHorizontal: SPACING.sm,
+                }}
+              >
+                <Text style={{ fontSize: 9, color: colors.lightGray, fontWeight: "600", marginBottom: 2 }}>
+                  {selected.week_label}
+                </Text>
+                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <Text style={{ fontSize: 10, color: colors.white, fontWeight: "700" }}>
+                    {selected.total_hours.toFixed(1)}h
+                  </Text>
+                  <Text style={{ fontSize: 10, color: colors.white, fontWeight: "700" }}>
+                    {selected.total_miles.toFixed(1)} mi
+                  </Text>
+                </View>
+              </View>
             )}
           </View>
         )}
@@ -423,7 +505,7 @@ export default function ProgressScreen() {
         <Card style={styles.chartCard}>
           <SportToggle visible={visible} onToggle={toggleSport} colors={colors} />
           <View style={{ marginTop: SPACING.sm }}>
-            <LineChart chartData={chartData} maxHours={maxHours} visible={visible} colors={colors} />
+            <LineChart chartData={chartData} weeklyData={data.weekly_volumes} maxHours={maxHours} visible={visible} colors={colors} />
           </View>
           <WeekLabels weeks={data.weekly_volumes} colors={colors} />
         </Card>
