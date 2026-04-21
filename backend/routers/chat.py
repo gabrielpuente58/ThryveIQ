@@ -1,20 +1,33 @@
 import asyncio
+import os
+from datetime import datetime
+
+from dotenv import load_dotenv
 from fastapi import APIRouter
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
 from models.chat import ChatRequest, ChatResponse
-from services.llm import ollama_chat
 from services.chat_tools import TOOLS
+
+load_dotenv()
+
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL_CHAT", "claude-haiku-4-5-20251001")
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 SYSTEM_PROMPT = """You are ThryveIQ, an expert triathlon coach AI. You help athletes with their
 training plans, answer questions about triathlons, and provide coaching advice.
 
+Today's date is {today}. When the athlete asks about "today", "tomorrow", "this week", or
+any relative time, use this as the reference. Match plan sessions to the correct day of
+the week using this date.
+
 Be concise, friendly, and encouraging. When athlete data is provided below, use specific
 numbers and details from it. Never fabricate stats or training data.
 
 {context}"""
 
-# Keywords that trigger automatic tool lookups
 TOOL_TRIGGERS = {
     "get_current_plan": [
         "plan", "schedule", "workout", "session", "training week",
@@ -46,12 +59,20 @@ def _detect_tools(message: str) -> list[str]:
     return needed
 
 
+def _flatten_content(content) -> str:
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in content
+        ).strip()
+    return str(content).strip()
+
+
 @router.post("/message", response_model=ChatResponse)
 async def chat_message(request: ChatRequest):
     tools_used: list[str] = []
     context_parts: list[str] = []
 
-    # Detect and run relevant tools
     needed_tools = _detect_tools(request.message)
     for tool_name in needed_tools:
         tool_fn = TOOLS[tool_name]
@@ -61,22 +82,35 @@ async def chat_message(request: ChatRequest):
         context_parts.append(f"[{tool_name}]:\n{result}")
         tools_used.append(tool_name)
 
-    # Inject workout context if provided (from "Ask Coach" button)
     if request.workout_context:
         context_parts.insert(0, f"[current_workout]:\n{request.workout_context}")
 
-    # Build context string
     if context_parts:
         context = "Athlete data:\n\n" + "\n\n".join(context_parts)
     else:
         context = "No specific athlete data was requested."
 
-    system = SYSTEM_PROMPT.format(context=context)
+    now = datetime.now()
+    system = SYSTEM_PROMPT.format(
+        today=now.strftime("%A, %B %-d, %Y"),
+        context=context,
+    )
 
-    # Build message history
-    messages = [{"role": m.role, "content": m.content} for m in request.history]
-    messages.append({"role": "user", "content": request.message})
+    messages = [SystemMessage(content=system)]
+    for m in request.history:
+        if m.role == "assistant":
+            messages.append(AIMessage(content=m.content))
+        else:
+            messages.append(HumanMessage(content=m.content))
+    messages.append(HumanMessage(content=request.message))
 
-    response_text = await ollama_chat(messages, system=system)
+    llm = ChatAnthropic(
+        model_name=ANTHROPIC_MODEL,
+        temperature=0,
+        max_tokens=1024,
+        timeout=60,
+        stop=None,
+    )
+    response = await llm.ainvoke(messages)
 
-    return ChatResponse(response=response_text, tools_used=tools_used)
+    return ChatResponse(response=_flatten_content(response.content), tools_used=tools_used)
