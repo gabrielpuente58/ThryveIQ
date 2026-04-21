@@ -20,6 +20,7 @@ function RouteGuard() {
     const inTabs = segments[0] === "(tabs)";
     const inOnboarding = segments[0] === "onboarding";
     const inLogin = segments[0] === "login";
+    const inSettings = segments[0] === "settings";
 
     if (!session) {
       if (!inLogin) router.replace("/login");
@@ -27,6 +28,7 @@ function RouteGuard() {
     }
 
     if (inOnboarding) return;
+    if (inSettings) return;
 
     const checkProfile = async () => {
       try {

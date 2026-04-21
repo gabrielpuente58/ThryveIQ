@@ -7,11 +7,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  TextInput,
-  Platform,
-  Dimensions,
 } from "react-native";
-import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -37,16 +33,6 @@ interface Profile {
   weakest_discipline: string;
 }
 
-interface EditDraft {
-  goal: string;
-  experience: string;
-  weekly_hours: string;
-  days_available: string;
-  strongest_discipline: string;
-  weakest_discipline: string;
-  race_date: string;
-}
-
 const LABELS: Record<string, string> = {
   first_timer: "First Timer",
   recreational: "Recreational",
@@ -61,9 +47,6 @@ const SPORT_COLORS_PROFILE: Record<string, string> = {
   bike: "#22C55E",
   run: "#F97316",
 };
-
-const GOAL_OPTIONS = ["first_timer", "recreational", "competitive"] as const;
-const DISCIPLINE_OPTIONS = ["swim", "bike", "run"] as const;
 
 // ── Progress / chart types ────────────────────────────────────────────────────
 
@@ -198,9 +181,6 @@ function WeeklyBarChart({ weeks, colors }: { weeks: WeeklyVolume[]; colors: Them
   );
 }
 
-const MIN_RACE_DATE = new Date();
-MIN_RACE_DATE.setMonth(MIN_RACE_DATE.getMonth() + 1);
-
 function daysUntil(dateStr: string): number {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -216,18 +196,6 @@ function formatDate(dateStr: string): string {
   });
 }
 
-function profileToDraft(p: Profile): EditDraft {
-  return {
-    goal: p.goal,
-    experience: p.experience,
-    weekly_hours: String(p.weekly_hours),
-    days_available: String(p.days_available),
-    strongest_discipline: p.strongest_discipline,
-    weakest_discipline: p.weakest_discipline,
-    race_date: p.race_date,
-  };
-}
-
 export default function ProfileScreen() {
   const { user } = useAuth();
   const { colors, isDark, toggleTheme } = useTheme();
@@ -238,12 +206,7 @@ export default function ProfileScreen() {
   const [stravaAthlete, setStravaAthlete] = useState<{ name: string; id: number } | null>(null);
   const [stravaLoading, setStravaLoading] = useState(false);
 
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<EditDraft | null>(null);
-  const [saving, setSaving] = useState(false);
-
   const [insights, setInsights] = useState<StravaInsightsResponse | null>(null);
-  const [insightsLoading, setInsightsLoading] = useState(true);
 
   useEffect(() => {
     if (!user) {
@@ -269,8 +232,7 @@ export default function ProfileScreen() {
     fetch(`${API_URL}/strava/insights?user_id=${user.id}`)
       .then((res) => res.json())
       .then((data) => setInsights(data))
-      .catch(() => {})
-      .finally(() => setInsightsLoading(false));
+      .catch(() => {});
   }, [user]);
 
   const handleConnectStrava = async () => {
@@ -326,66 +288,6 @@ export default function ProfileScreen() {
 
   const handleSignOut = () => supabase.auth.signOut();
 
-  const handleEditPress = () => {
-    if (!profile) return;
-    setDraft(profileToDraft(profile));
-    setEditing(true);
-  };
-
-  const handleCancel = () => {
-    setEditing(false);
-    setDraft(null);
-  };
-
-  const handleSave = async () => {
-    if (!user || !draft || !profile) return;
-    setSaving(true);
-    try {
-      const payload: Record<string, string | number> = {};
-
-      if (draft.goal !== profile.goal) payload.goal = draft.goal;
-      if (draft.experience !== profile.experience) payload.experience = draft.experience;
-      if (draft.strongest_discipline !== profile.strongest_discipline)
-        payload.strongest_discipline = draft.strongest_discipline;
-      if (draft.weakest_discipline !== profile.weakest_discipline)
-        payload.weakest_discipline = draft.weakest_discipline;
-      if (draft.race_date !== profile.race_date) payload.race_date = draft.race_date;
-
-      const parsedHours = parseFloat(draft.weekly_hours);
-      if (!isNaN(parsedHours) && parsedHours !== profile.weekly_hours)
-        payload.weekly_hours = parsedHours;
-
-      const parsedDays = parseInt(draft.days_available, 10);
-      if (!isNaN(parsedDays) && parsedDays !== profile.days_available)
-        payload.days_available = parsedDays;
-
-      const res = await fetch(`${API_URL}/profiles/${user.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) throw new Error("Save failed");
-
-      setProfile({
-        ...profile,
-        goal: draft.goal,
-        experience: draft.experience,
-        strongest_discipline: draft.strongest_discipline,
-        weakest_discipline: draft.weakest_discipline,
-        race_date: draft.race_date,
-        weekly_hours: isNaN(parsedHours) ? profile.weekly_hours : parsedHours,
-        days_available: isNaN(parsedDays) ? profile.days_available : parsedDays,
-      });
-      setEditing(false);
-      setDraft(null);
-    } catch {
-      Alert.alert("Error", "Could not save changes.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   if (loading) {
     return (
       <Screen style={styles.centered}>
@@ -397,23 +299,27 @@ export default function ProfileScreen() {
   const countdown = profile ? daysUntil(profile.race_date) : 0;
   const weeksUntil = Math.floor(countdown / 7);
 
-  const draftDate = draft?.race_date ? new Date(draft.race_date) : MIN_RACE_DATE;
+  const weeklyVolumes = insights?.weekly_volumes ?? [];
+  const hasWeekData = weeklyVolumes.length > 0;
+  const thisWeekHours = hasWeekData ? weeklyVolumes[weeklyVolumes.length - 1].total_hours : 0;
+  const avgWeekHours = hasWeekData
+    ? weeklyVolumes.reduce((sum, w) => sum + w.total_hours, 0) / weeklyVolumes.length
+    : 0;
+  const totalActivities = insights?.total_activities ?? 0;
 
   return (
     <Screen>
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.headerRow}>
-          <Text style={styles.title}>Profile</Text>
+          <Text style={styles.title}>Dashboard</Text>
           <View style={styles.headerActions}>
             <TouchableOpacity onPress={toggleTheme} style={styles.iconButton}>
               <Ionicons name={isDark ? "sunny-outline" : "moon-outline"} size={20} color={colors.lightGray} />
             </TouchableOpacity>
-            {profile && !editing && (
-              <TouchableOpacity onPress={handleEditPress} style={styles.iconButton}>
-                <Ionicons name="pencil-outline" size={20} color={colors.primary} />
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity onPress={() => router.push("/settings")} style={styles.iconButton}>
+              <Ionicons name="settings-outline" size={20} color={colors.lightGray} />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -422,230 +328,155 @@ export default function ProfileScreen() {
           <Card style={[styles.countdownCard, { borderColor: colors.primary + "40" }]}>
             <Text style={[styles.countdownValue, { color: colors.primary }]}>{weeksUntil}</Text>
             <Text style={[styles.countdownLabel, { color: colors.lightGray }]}>weeks to race day</Text>
-            <Text style={[styles.countdownDate, { color: colors.white }]}>{formatDate(profile.race_date)}</Text>
+            <Text style={[styles.countdownDate, { color: colors.white }]}>{profile ? formatDate(profile.race_date) : ""}</Text>
           </Card>
         )}
 
-        {/* ── EDIT MODE ── */}
-        {editing && draft && (
+        {/* Stat tiles */}
+        {insights?.connected && (
+          <View style={styles.statsRow}>
+            <StatTile
+              label="This Week"
+              value={`${thisWeekHours.toFixed(1)}h`}
+              icon="flash-outline"
+              colors={colors}
+            />
+            <StatTile
+              label="Weekly Avg"
+              value={`${avgWeekHours.toFixed(1)}h`}
+              icon="trending-up-outline"
+              colors={colors}
+            />
+            <StatTile
+              label="Activities"
+              value={String(totalActivities)}
+              icon="checkmark-done-outline"
+              colors={colors}
+            />
+          </View>
+        )}
+
+        {/* Progress chart */}
+        {insights?.connected && hasWeekData && (
           <>
+            <Text style={styles.sectionLabel}>Training Progress</Text>
             <Card style={styles.section}>
-              <Text style={styles.sectionTitle}>Training</Text>
-
-              <EditFieldRow label="Weekly Hours" colors={colors}>
-                <TextInput
-                  style={styles.textInput}
-                  value={draft.weekly_hours}
-                  onChangeText={(v) => setDraft({ ...draft, weekly_hours: v })}
-                  keyboardType="numeric"
-                  placeholderTextColor={colors.lightGray}
-                />
-              </EditFieldRow>
-
-              <EditFieldRow label="Days / Week" colors={colors}>
-                <TextInput
-                  style={styles.textInput}
-                  value={draft.days_available}
-                  onChangeText={(v) => setDraft({ ...draft, days_available: v })}
-                  keyboardType="numeric"
-                  placeholderTextColor={colors.lightGray}
-                />
-              </EditFieldRow>
-
-              <EditFieldRow label="Goal" colors={colors}>
-                <View style={styles.pillRow}>
-                  {GOAL_OPTIONS.map((opt) => (
-                    <TouchableOpacity
-                      key={opt}
-                      style={[styles.pill, draft.goal === opt && styles.pillActive]}
-                      onPress={() => setDraft({ ...draft, goal: opt })}
-                    >
-                      <Text style={[styles.pillText, draft.goal === opt && styles.pillTextActive]}>
-                        {LABELS[opt]}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </EditFieldRow>
-
-              <EditFieldRow label="Experience" colors={colors}>
-                <View style={styles.pillRow}>
-                  {GOAL_OPTIONS.map((opt) => (
-                    <TouchableOpacity
-                      key={opt}
-                      style={[styles.pill, draft.experience === opt && styles.pillActive]}
-                      onPress={() => setDraft({ ...draft, experience: opt })}
-                    >
-                      <Text style={[styles.pillText, draft.experience === opt && styles.pillTextActive]}>
-                        {LABELS[opt]}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </EditFieldRow>
+              <WeeklyBarChart weeks={weeklyVolumes} colors={colors} />
             </Card>
-
-            <Card style={styles.section}>
-              <Text style={styles.sectionTitle}>Disciplines</Text>
-
-              <EditFieldRow label="Strongest" colors={colors}>
-                <View style={styles.pillRow}>
-                  {DISCIPLINE_OPTIONS.map((opt) => (
-                    <TouchableOpacity
-                      key={opt}
-                      style={[styles.pill, draft.strongest_discipline === opt && styles.pillActive]}
-                      onPress={() => setDraft({ ...draft, strongest_discipline: opt })}
-                    >
-                      <Text style={[styles.pillText, draft.strongest_discipline === opt && styles.pillTextActive]}>
-                        {LABELS[opt]}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </EditFieldRow>
-
-              <EditFieldRow label="Focus (Weakest)" colors={colors}>
-                <View style={styles.pillRow}>
-                  {DISCIPLINE_OPTIONS.map((opt) => (
-                    <TouchableOpacity
-                      key={opt}
-                      style={[styles.pill, draft.weakest_discipline === opt && styles.pillActive]}
-                      onPress={() => setDraft({ ...draft, weakest_discipline: opt })}
-                    >
-                      <Text style={[styles.pillText, draft.weakest_discipline === opt && styles.pillTextActive]}>
-                        {LABELS[opt]}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </EditFieldRow>
-            </Card>
-
-            {/* Race Date — native inline calendar (Apple HIG) */}
-            <Card style={styles.section}>
-              <Text style={styles.sectionTitle}>Race Date</Text>
-              <DateTimePicker
-                value={draftDate}
-                mode="date"
-                display={Platform.OS === "ios" ? "inline" : "default"}
-                minimumDate={MIN_RACE_DATE}
-                onChange={(_, selected) => {
-                  if (!selected) return;
-                  setDraft({ ...draft, race_date: selected.toISOString().split("T")[0] });
-                }}
-                themeVariant={isDark ? "dark" : "light"}
-                accentColor={colors.primary}
-                style={styles.datePicker}
-              />
-            </Card>
-
-            <TouchableOpacity
-              style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-              onPress={handleSave}
-              disabled={saving}
-            >
-              {saving ? (
-                <ActivityIndicator size="small" color={colors.background} />
-              ) : (
-                <Text style={styles.saveButtonText}>Save Changes</Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} disabled={saving}>
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
           </>
         )}
 
-        {/* ── VIEW MODE ── */}
-        {!editing && (
+        {/* Athlete Snapshot */}
+        {profile && (
           <>
-            {/* Progress section */}
-            {insights?.connected && insights.weekly_volumes.length > 0 && (
-              <>
-                <Text style={styles.sectionLabel}>Training Progress</Text>
-                <Card style={styles.section}>
-                  <WeeklyBarChart weeks={insights.weekly_volumes} colors={colors} />
-                </Card>
-              </>
-            )}
-
-            {profile && (
-              <Card style={styles.section}>
-                <Text style={styles.sectionTitle}>Training</Text>
-                <View style={styles.row}>
-                  <InfoItem label="Goal" value={LABELS[profile.goal] ?? profile.goal} colors={colors} />
-                  <InfoItem label="Experience" value={LABELS[profile.experience] ?? profile.experience} colors={colors} />
-                </View>
-                <View style={styles.row}>
-                  <InfoItem label="Weekly Hours" value={`${profile.weekly_hours}h`} colors={colors} />
-                  <InfoItem label="Days / Week" value={`${profile.days_available} days`} colors={colors} />
-                </View>
-              </Card>
-            )}
-
-            {profile && (
-              <Card style={styles.section}>
-                <Text style={styles.sectionTitle}>Disciplines</Text>
-                <View style={styles.row}>
-                  <DisciplineItem label="Strongest" sport={profile.strongest_discipline} icon="trophy-outline" colors={colors} />
-                  <DisciplineItem label="Focus"     sport={profile.weakest_discipline}   icon="flag-outline"   colors={colors} />
-                </View>
-              </Card>
-            )}
-
+            <Text style={styles.sectionLabel}>Athlete Snapshot</Text>
             <Card style={styles.section}>
-              <Text style={styles.sectionTitle}>Connections</Text>
-              <View style={styles.connectionRow}>
-                <View style={styles.connectionInfo}>
-                  <View style={[styles.connectionIcon, { backgroundColor: "#FC4C02" }]}>
-                    <FontAwesome5 name="strava" size={18} color="#FFFFFF" />
-                  </View>
-                  <View>
-                    <Text style={styles.connectionName}>Strava</Text>
-                    <Text style={styles.connectionSubtitle}>
-                      {stravaAthlete ? stravaAthlete.name : "Not connected"}
-                    </Text>
-                  </View>
-                </View>
-                {stravaAthlete ? (
-                  <TouchableOpacity onPress={handleDisconnectStrava}>
-                    <Text style={styles.disconnectText}>Disconnect</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.connectButton}
-                    onPress={handleConnectStrava}
-                    disabled={stravaLoading}
-                  >
-                    {stravaLoading ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <Text style={styles.connectButtonText}>Connect</Text>
-                    )}
-                  </TouchableOpacity>
-                )}
+              <View style={styles.snapshotGrid}>
+                <SnapshotItem
+                  label="Goal"
+                  value={LABELS[profile.goal] ?? profile.goal}
+                  icon="flag-outline"
+                  colors={colors}
+                />
+                <SnapshotItem
+                  label="Experience"
+                  value={LABELS[profile.experience] ?? profile.experience}
+                  icon="barbell-outline"
+                  colors={colors}
+                />
+                <SnapshotItem
+                  label="Weekly Hours"
+                  value={`${profile.weekly_hours}h`}
+                  icon="time-outline"
+                  colors={colors}
+                />
+                <SnapshotItem
+                  label="Days / Week"
+                  value={`${profile.days_available}`}
+                  icon="calendar-outline"
+                  colors={colors}
+                />
+              </View>
+
+              <View style={styles.disciplineRow}>
+                <DisciplineItem
+                  label="Strongest"
+                  sport={profile.strongest_discipline}
+                  icon="trophy-outline"
+                  colors={colors}
+                />
+                <View style={styles.disciplineDivider} />
+                <DisciplineItem
+                  label="Focus"
+                  sport={profile.weakest_discipline}
+                  icon="locate-outline"
+                  colors={colors}
+                />
               </View>
             </Card>
-
-            <Card style={styles.section}>
-              <Text style={styles.sectionTitle}>Account</Text>
-              <Text style={styles.email}>{user?.email}</Text>
-            </Card>
-
-            <TouchableOpacity
-              style={styles.devButton}
-              onPress={() => router.push("/onboarding/race-date?test=true")}
-            >
-              <Ionicons name="construct-outline" size={16} color={colors.lightGray} />
-              <Text style={styles.devButtonText}>Test Onboarding</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
-              <Text style={styles.signOutText}>Sign Out</Text>
-            </TouchableOpacity>
           </>
         )}
+
+        {/* Connections */}
+        <Text style={styles.sectionLabel}>Connections</Text>
+        <Card style={styles.section}>
+          <View style={styles.connectionRow}>
+            <View style={styles.connectionInfo}>
+              <View style={[styles.connectionIcon, { backgroundColor: "#FC4C02" }]}>
+                <FontAwesome5 name="strava" size={18} color="#FFFFFF" />
+              </View>
+              <View>
+                <Text style={styles.connectionName}>Strava</Text>
+                <Text style={styles.connectionSubtitle}>
+                  {stravaAthlete ? stravaAthlete.name : "Not connected"}
+                </Text>
+              </View>
+            </View>
+            {stravaAthlete ? (
+              <TouchableOpacity onPress={handleDisconnectStrava}>
+                <Text style={styles.disconnectText}>Disconnect</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.connectButton}
+                onPress={handleConnectStrava}
+                disabled={stravaLoading}
+              >
+                {stravaLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.connectButtonText}>Connect</Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+        </Card>
+
+        {/* Account + settings row */}
+        <TouchableOpacity style={styles.settingsRow} onPress={() => router.push("/settings")}>
+          <View style={styles.settingsLeft}>
+            <Ionicons name="settings-outline" size={20} color={colors.lightGray} />
+            <Text style={styles.settingsText}>Settings</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.lightGray} />
+        </TouchableOpacity>
+
+        <View style={styles.accountBlock}>
+          <Text style={styles.emailLabel}>Signed in as</Text>
+          <Text style={styles.email}>{user?.email}</Text>
+        </View>
+
+        <TouchableOpacity
+          style={styles.devButton}
+          onPress={() => router.push("/onboarding/race-date?test=true")}
+        >
+          <Ionicons name="construct-outline" size={16} color={colors.lightGray} />
+          <Text style={styles.devButtonText}>Test Onboarding</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+          <Text style={styles.signOutText}>Sign Out</Text>
+        </TouchableOpacity>
       </ScrollView>
     </Screen>
   );
@@ -653,33 +484,77 @@ export default function ProfileScreen() {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function InfoItem({ label, value, colors }: { label: string; value: string; colors: ThemeColors }) {
+function StatTile({
+  label,
+  value,
+  icon,
+  colors,
+}: {
+  label: string;
+  value: string;
+  icon: string;
+  colors: ThemeColors;
+}) {
   return (
-    <View style={{ flex: 1, gap: SPACING.xs }}>
+    <View style={{
+      flex: 1,
+      backgroundColor: colors.darkGray,
+      borderRadius: BORDER_RADIUS.md,
+      padding: SPACING.md,
+      gap: SPACING.xs,
+    }}>
+      <Ionicons name={icon as never} size={16} color={colors.primary} />
+      <Text style={{ fontSize: FONT_SIZES.xl, fontWeight: "700", color: colors.white }}>{value}</Text>
       <Text style={{ fontSize: FONT_SIZES.xs, color: colors.lightGray }}>{label}</Text>
+    </View>
+  );
+}
+
+function SnapshotItem({
+  label,
+  value,
+  icon,
+  colors,
+}: {
+  label: string;
+  value: string;
+  icon: string;
+  colors: ThemeColors;
+}) {
+  return (
+    <View style={{ width: "48%", gap: SPACING.xs }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.xs }}>
+        <Ionicons name={icon as never} size={12} color={colors.lightGray} />
+        <Text style={{ fontSize: FONT_SIZES.xs, color: colors.lightGray }}>{label}</Text>
+      </View>
       <Text style={{ fontSize: FONT_SIZES.md, fontWeight: "600", color: colors.white }}>{value}</Text>
     </View>
   );
 }
 
-function DisciplineItem({ label, sport, icon, colors }: { label: string; sport: string; icon: string; colors: ThemeColors }) {
+function DisciplineItem({
+  label,
+  sport,
+  icon,
+  colors,
+}: {
+  label: string;
+  sport: string;
+  icon: string;
+  colors: ThemeColors;
+}) {
   return (
-    <View style={{ flex: 1, gap: SPACING.xs }}>
-      <Text style={{ fontSize: FONT_SIZES.xs, color: colors.lightGray }}>{label}</Text>
+    <View style={{ flex: 1, gap: SPACING.xs, alignItems: "center" }}>
+      <Text style={{ fontSize: FONT_SIZES.xs, color: colors.lightGray, textTransform: "uppercase", letterSpacing: 0.8 }}>
+        {label}
+      </Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.xs }}>
-        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: SPORT_COLORS_PROFILE[sport] }} />
+        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: SPORT_COLORS_PROFILE[sport] }} />
         <Ionicons name={icon as never} size={14} color={colors.lightGray} />
-        <Text style={{ fontSize: FONT_SIZES.md, fontWeight: "600", color: colors.white }}>{LABELS[sport] ?? sport}</Text>
+        <Text style={{ fontSize: FONT_SIZES.md, fontWeight: "600", color: colors.white }}>
+          {LABELS[sport] ?? sport}
+        </Text>
       </View>
-    </View>
-  );
-}
-
-function EditFieldRow({ label, children, colors }: { label: string; children: React.ReactNode; colors: ThemeColors }) {
-  return (
-    <View style={{ gap: SPACING.xs }}>
-      <Text style={{ fontSize: FONT_SIZES.xs, color: colors.lightGray }}>{label}</Text>
-      {children}
     </View>
   );
 }
@@ -711,9 +586,6 @@ const makeStyles = (colors: ThemeColors) =>
     iconButton: {
       padding: SPACING.xs,
     },
-    editButton: {
-      padding: SPACING.xs,
-    },
     countdownCard: {
       alignItems: "center",
       marginBottom: SPACING.md,
@@ -735,6 +607,11 @@ const makeStyles = (colors: ThemeColors) =>
       marginTop: SPACING.sm,
       fontWeight: "600",
     },
+    statsRow: {
+      flexDirection: "row",
+      gap: SPACING.sm,
+      marginBottom: SPACING.md,
+    },
     sectionLabel: {
       fontSize: FONT_SIZES.xs,
       fontWeight: "600",
@@ -743,33 +620,28 @@ const makeStyles = (colors: ThemeColors) =>
       letterSpacing: 0.8,
       marginBottom: SPACING.sm,
     },
-    statsRow: {
-      flexDirection: "row",
-      gap: SPACING.sm,
-      marginBottom: SPACING.md,
-    },
-    divider: {
-      height: 1,
-      backgroundColor: colors.darkGray,
-    },
     section: {
       marginBottom: SPACING.md,
       gap: SPACING.md,
     },
-    sectionTitle: {
-      fontSize: FONT_SIZES.xs,
-      fontWeight: "700",
-      color: colors.lightGray,
-      textTransform: "uppercase",
-      letterSpacing: 1,
-    },
-    row: {
+    snapshotGrid: {
       flexDirection: "row",
+      flexWrap: "wrap",
       gap: SPACING.md,
+      rowGap: SPACING.md,
+      justifyContent: "space-between",
     },
-    email: {
-      fontSize: FONT_SIZES.md,
-      color: colors.lightGray,
+    disciplineRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingTop: SPACING.md,
+      borderTopWidth: 1,
+      borderTopColor: colors.darkGray,
+    },
+    disciplineDivider: {
+      width: 1,
+      alignSelf: "stretch",
+      backgroundColor: colors.darkGray,
     },
     connectionRow: {
       flexDirection: "row",
@@ -815,6 +687,41 @@ const makeStyles = (colors: ThemeColors) =>
       fontSize: FONT_SIZES.sm,
       color: colors.lightGray,
     },
+    settingsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      backgroundColor: colors.darkGray,
+      borderRadius: BORDER_RADIUS.md,
+      paddingVertical: SPACING.md,
+      paddingHorizontal: SPACING.md,
+      marginBottom: SPACING.md,
+    },
+    settingsLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: SPACING.md,
+    },
+    settingsText: {
+      fontSize: FONT_SIZES.md,
+      color: colors.white,
+      fontWeight: "600",
+    },
+    accountBlock: {
+      gap: SPACING.xs,
+      marginBottom: SPACING.md,
+      paddingHorizontal: SPACING.xs,
+    },
+    emailLabel: {
+      fontSize: FONT_SIZES.xs,
+      color: colors.lightGray,
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
+    },
+    email: {
+      fontSize: FONT_SIZES.sm,
+      color: colors.white,
+    },
     devButton: {
       flexDirection: "row",
       alignItems: "center",
@@ -839,68 +746,6 @@ const makeStyles = (colors: ThemeColors) =>
       marginBottom: SPACING.xl,
     },
     signOutText: {
-      fontSize: FONT_SIZES.md,
-      color: colors.lightGray,
-      fontWeight: "600",
-    },
-    textInput: {
-      backgroundColor: colors.darkGray,
-      borderRadius: BORDER_RADIUS.sm,
-      paddingHorizontal: SPACING.md,
-      paddingVertical: SPACING.sm,
-      fontSize: FONT_SIZES.md,
-      color: colors.white,
-    },
-    pillRow: {
-      flexDirection: "row",
-      gap: SPACING.sm,
-      flexWrap: "wrap",
-    },
-    pill: {
-      backgroundColor: colors.darkGray,
-      paddingVertical: SPACING.xs,
-      paddingHorizontal: SPACING.md,
-      borderRadius: BORDER_RADIUS.xl,
-    },
-    pillActive: {
-      backgroundColor: colors.primary,
-    },
-    pillText: {
-      fontSize: FONT_SIZES.sm,
-      color: colors.lightGray,
-      fontWeight: "500",
-    },
-    pillTextActive: {
-      color: colors.background,
-      fontWeight: "700",
-    },
-    datePicker: {
-      alignSelf: "stretch",
-    },
-    saveButton: {
-      backgroundColor: colors.primary,
-      borderRadius: BORDER_RADIUS.md,
-      padding: SPACING.md,
-      alignItems: "center",
-      marginBottom: SPACING.sm,
-    },
-    saveButtonDisabled: {
-      opacity: 0.6,
-    },
-    saveButtonText: {
-      fontSize: FONT_SIZES.md,
-      fontWeight: "700",
-      color: colors.background,
-    },
-    cancelButton: {
-      borderWidth: 1,
-      borderColor: colors.lightGray + "60",
-      borderRadius: BORDER_RADIUS.md,
-      padding: SPACING.md,
-      alignItems: "center",
-      marginBottom: SPACING.xl,
-    },
-    cancelButtonText: {
       fontSize: FONT_SIZES.md,
       color: colors.lightGray,
       fontWeight: "600",
