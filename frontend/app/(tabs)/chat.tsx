@@ -7,14 +7,16 @@ import {
   KeyboardAvoidingView,
   Platform,
   TouchableOpacity,
-  ActivityIndicator,
   Keyboard,
+  TextInput,
+  ScrollView,
+  NativeSyntheticEvent,
+  TextInputKeyPressEventData,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "../../components/Screen";
-import { Input } from "../../components/Input";
-import { Card } from "../../components/Card";
+import { TypingIndicator } from "../../components/TypingIndicator";
 import { ThemeColors, SPACING, BORDER_RADIUS, FONT_SIZES } from "../../constants/theme";
 import { API_URL } from "../../constants/api";
 import { useAuth } from "../../context/AuthContext";
@@ -35,6 +37,13 @@ const GREETING: Message = {
   timestamp: new Date(),
 };
 
+const SUGGESTED_PROMPTS = [
+  { icon: "calendar-outline" as const, text: "What's on my plan today?" },
+  { icon: "speedometer-outline" as const, text: "What zones should I train in?" },
+  { icon: "water-outline" as const, text: "How do I improve my swim?" },
+  { icon: "stats-chart-outline" as const, text: "Summarize my recent activities" },
+];
+
 export default function ChatScreen() {
   const { user } = useAuth();
   const { colors } = useTheme();
@@ -45,13 +54,11 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const pendingContextRef = useRef<string>("");
 
-  // On tab focus, check for a pending "Ask Coach" workout context
   useFocusEffect(
     useCallback(() => {
       const pending = consumePendingWorkoutChat();
       if (!pending || !user) return;
       pendingContextRef.current = pending.workoutContext;
-      // Auto-send the pre-built message with workout context
       sendMessage(pending.message, pending.workoutContext);
     }, [user])
   );
@@ -86,7 +93,6 @@ export default function ChatScreen() {
         }),
       });
 
-      // Clear context after first use
       pendingContextRef.current = "";
 
       const data = await res.json();
@@ -109,17 +115,51 @@ export default function ChatScreen() {
     }
   };
 
-  const handleSend = () => sendMessage(inputText);
+  const handleSend = () => {
+    const text = inputText.trim();
+    if (!text || isLoading) return;
+    sendMessage(text);
+  };
 
-  const renderMessage = ({ item }: { item: Message }) => (
-    <View style={[styles.messageContainer, item.isUser ? styles.userContainer : styles.aiContainer]}>
-      <Card style={[styles.bubble, item.isUser ? styles.userBubble : styles.aiBubble]}>
-        <Text style={[styles.messageText, item.isUser && styles.userMessageText]}>
-          {item.text}
-        </Text>
-      </Card>
-    </View>
-  );
+  // Web/laptop: Enter sends, Shift+Enter inserts newline.
+  const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    if (Platform.OS !== "web") return;
+    const native = e.nativeEvent as unknown as KeyboardEvent;
+    if (native.key === "Enter" && !native.shiftKey) {
+      e.preventDefault?.();
+      handleSend();
+    }
+  };
+
+  const isEmptyConversation = messages.length === 1;
+
+  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
+    const prev = index > 0 ? messages[index - 1] : null;
+    const showAvatar = !item.isUser && (!prev || prev.isUser);
+    return (
+      <View style={[styles.messageRow, item.isUser ? styles.userRow : styles.aiRow]}>
+        {!item.isUser && (
+          <View style={styles.avatarSlot}>
+            {showAvatar ? (
+              <View style={styles.avatar}>
+                <Ionicons name="sparkles" size={12} color={colors.background} />
+              </View>
+            ) : null}
+          </View>
+        )}
+        <View
+          style={[
+            styles.bubble,
+            item.isUser ? styles.userBubble : styles.aiBubble,
+          ]}
+        >
+          <Text style={[styles.messageText, item.isUser && styles.userMessageText]}>
+            {item.text}
+          </Text>
+        </View>
+      </View>
+    );
+  };
 
   return (
     <Screen style={styles.screen}>
@@ -129,8 +169,18 @@ export default function ChatScreen() {
         keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>AI Coach</Text>
-          <Text style={styles.subtitle}>Your personal triathlon trainer</Text>
+          <View style={styles.headerLeft}>
+            <View style={styles.headerAvatar}>
+              <Ionicons name="sparkles" size={14} color={colors.background} />
+            </View>
+            <View>
+              <Text style={styles.title}>AI Coach</Text>
+              <View style={styles.statusRow}>
+                <View style={styles.statusDot} />
+                <Text style={styles.subtitle}>Online · Powered by Claude</Text>
+              </View>
+            </View>
+          </View>
         </View>
 
         <FlatList
@@ -143,32 +193,66 @@ export default function ChatScreen() {
           onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
+          ListFooterComponent={
+            <>
+              {isLoading && <TypingIndicator />}
+              {isEmptyConversation && !isLoading && (
+                <View style={styles.suggestionsWrapper}>
+                  <Text style={styles.suggestionsLabel}>Try asking</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.suggestionsRow}
+                  >
+                    {SUGGESTED_PROMPTS.map((p, i) => (
+                      <TouchableOpacity
+                        key={i}
+                        style={styles.suggestionChip}
+                        onPress={() => sendMessage(p.text)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name={p.icon} size={14} color={colors.primary} />
+                        <Text style={styles.suggestionChipText}>{p.text}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+            </>
+          }
         />
 
         <View style={styles.inputContainer}>
-          <View style={styles.inputRow}>
-            <View style={styles.inputWrapper}>
-              <Input
-                value={inputText}
-                onChangeText={setInputText}
-                placeholder="Ask your coach anything..."
-                multiline
-                style={styles.input}
-                onSubmitEditing={handleSend}
-                returnKeyType="send"
-              />
-            </View>
+          <View style={styles.inputPill}>
+            <TextInput
+              value={inputText}
+              onChangeText={setInputText}
+              placeholder="Message your coach…"
+              placeholderTextColor={colors.lightGray}
+              multiline
+              style={styles.input}
+              onKeyPress={handleKeyPress}
+              onSubmitEditing={Platform.OS !== "web" ? handleSend : undefined}
+              returnKeyType="send"
+              blurOnSubmit={Platform.OS !== "web"}
+            />
             <TouchableOpacity
-              style={[styles.sendButton, (!inputText.trim() || isLoading) && styles.sendButtonDisabled]}
-              onPress={() => { Keyboard.dismiss(); handleSend(); }}
+              style={[
+                styles.sendButton,
+                (!inputText.trim() || isLoading) && styles.sendButtonDisabled,
+              ]}
+              onPress={() => {
+                if (Platform.OS !== "web") Keyboard.dismiss();
+                handleSend();
+              }}
               disabled={!inputText.trim() || isLoading}
-              activeOpacity={0.7}
+              activeOpacity={0.8}
             >
-              {isLoading ? (
-                <ActivityIndicator color={colors.background} size="small" />
-              ) : (
-                <Ionicons name="send" size={20} color={colors.background} />
-              )}
+              <Ionicons
+                name="arrow-up"
+                size={18}
+                color={!inputText.trim() || isLoading ? colors.lightGray : colors.background}
+              />
             </TouchableOpacity>
           </View>
         </View>
@@ -181,41 +265,178 @@ const makeStyles = (colors: ThemeColors) =>
   StyleSheet.create({
     screen: { padding: 0 },
     keyboardView: { flex: 1 },
+
     header: {
-      padding: SPACING.md,
-      paddingTop: SPACING.lg,
+      paddingHorizontal: SPACING.md,
+      paddingVertical: SPACING.md,
       borderBottomWidth: 1,
       borderBottomColor: colors.mediumGray,
     },
-    title: { fontSize: FONT_SIZES.xxl, fontWeight: "bold", color: colors.white, marginBottom: SPACING.xs },
-    subtitle: { fontSize: FONT_SIZES.sm, color: colors.lightGray },
-    messageList: { flex: 1 },
-    messageListContent: { padding: SPACING.md, paddingBottom: SPACING.lg },
-    messageContainer: { marginBottom: SPACING.md, maxWidth: "80%" },
-    userContainer: { alignSelf: "flex-end" },
-    aiContainer: { alignSelf: "flex-start" },
-    bubble: { padding: SPACING.md },
-    userBubble: { backgroundColor: colors.primary },
-    aiBubble: { backgroundColor: colors.mediumGray },
-    messageText: { fontSize: FONT_SIZES.md, color: colors.white, lineHeight: 22 },
-    userMessageText: { color: colors.background },
-    inputContainer: {
-      padding: SPACING.md,
-      borderTopWidth: 1,
-      borderTopColor: colors.mediumGray,
-      backgroundColor: colors.background,
+    headerLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: SPACING.sm,
     },
-    inputRow: { flexDirection: "row", alignItems: "flex-end", gap: SPACING.sm },
-    inputWrapper: { flex: 1 },
-    input: { maxHeight: 100 },
-    sendButton: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
+    headerAvatar: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
-      marginBottom: 2,
     },
-    sendButtonDisabled: { opacity: 0.4 },
+    title: {
+      fontSize: FONT_SIZES.lg,
+      fontWeight: "700",
+      color: colors.white,
+    },
+    statusRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      marginTop: 2,
+    },
+    statusDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: "#22C55E",
+    },
+    subtitle: {
+      fontSize: FONT_SIZES.xs,
+      color: colors.lightGray,
+    },
+
+    messageList: { flex: 1 },
+    messageListContent: {
+      padding: SPACING.md,
+      paddingBottom: SPACING.lg,
+      gap: SPACING.sm,
+    },
+
+    messageRow: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      gap: SPACING.xs,
+      maxWidth: "100%",
+    },
+    userRow: {
+      justifyContent: "flex-end",
+    },
+    aiRow: {
+      justifyContent: "flex-start",
+    },
+    avatarSlot: {
+      width: 24,
+      alignItems: "center",
+    },
+    avatar: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    bubble: {
+      paddingVertical: SPACING.sm + 2,
+      paddingHorizontal: SPACING.md,
+      maxWidth: "78%",
+    },
+    userBubble: {
+      backgroundColor: colors.primary,
+      borderTopLeftRadius: 18,
+      borderTopRightRadius: 18,
+      borderBottomLeftRadius: 18,
+      borderBottomRightRadius: 4,
+    },
+    aiBubble: {
+      backgroundColor: colors.mediumGray,
+      borderTopLeftRadius: 18,
+      borderTopRightRadius: 18,
+      borderBottomLeftRadius: 4,
+      borderBottomRightRadius: 18,
+    },
+    messageText: {
+      fontSize: FONT_SIZES.md,
+      color: colors.white,
+      lineHeight: 22,
+    },
+    userMessageText: {
+      color: colors.background,
+    },
+
+    suggestionsWrapper: {
+      marginTop: SPACING.md,
+      gap: SPACING.sm,
+    },
+    suggestionsLabel: {
+      fontSize: FONT_SIZES.xs,
+      fontWeight: "700",
+      color: colors.lightGray,
+      textTransform: "uppercase",
+      letterSpacing: 1,
+      paddingHorizontal: SPACING.xs,
+    },
+    suggestionsRow: {
+      gap: SPACING.sm,
+      paddingVertical: SPACING.xs,
+      paddingHorizontal: SPACING.xs,
+    },
+    suggestionChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: SPACING.xs,
+      backgroundColor: colors.darkGray,
+      borderWidth: 1,
+      borderColor: colors.mediumGray,
+      borderRadius: BORDER_RADIUS.xl,
+      paddingVertical: SPACING.sm,
+      paddingHorizontal: SPACING.md,
+    },
+    suggestionChipText: {
+      fontSize: FONT_SIZES.sm,
+      color: colors.white,
+      fontWeight: "500",
+    },
+
+    inputContainer: {
+      paddingHorizontal: SPACING.md,
+      paddingTop: SPACING.sm,
+      paddingBottom: SPACING.md,
+      backgroundColor: colors.background,
+      borderTopWidth: 1,
+      borderTopColor: colors.mediumGray,
+    },
+    inputPill: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      backgroundColor: colors.mediumGray,
+      borderRadius: 24,
+      paddingLeft: SPACING.md,
+      paddingRight: 4,
+      paddingVertical: 4,
+      gap: SPACING.sm,
+      minHeight: 48,
+    },
+    input: {
+      flex: 1,
+      fontSize: FONT_SIZES.md,
+      color: colors.white,
+      paddingVertical: SPACING.sm,
+      maxHeight: 120,
+      ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}),
+    },
+    sendButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    sendButtonDisabled: {
+      backgroundColor: colors.darkGray,
+    },
   });
