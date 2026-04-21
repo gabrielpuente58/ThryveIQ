@@ -207,6 +207,7 @@ export default function ProfileScreen() {
   const [stravaLoading, setStravaLoading] = useState(false);
 
   const [insights, setInsights] = useState<StravaInsightsResponse | null>(null);
+  const [planMeta, setPlanMeta] = useState<{ weeks_until_race: number; weeks_generated: number } | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -232,6 +233,16 @@ export default function ProfileScreen() {
     fetch(`${API_URL}/strava/insights?user_id=${user.id}`)
       .then((res) => res.json())
       .then((data) => setInsights(data))
+      .catch(() => {});
+
+    fetch(`${API_URL}/plans/current?user_id=${user.id}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) setPlanMeta({
+          weeks_until_race: data.weeks_until_race,
+          weeks_generated: data.weeks_generated,
+        });
+      })
       .catch(() => {});
   }, [user]);
 
@@ -298,6 +309,13 @@ export default function ProfileScreen() {
 
   const countdown = profile ? daysUntil(profile.race_date) : 0;
   const weeksUntil = Math.floor(countdown / 7);
+  const daysRemainder = countdown % 7;
+  const totalPlanWeeks = planMeta?.weeks_until_race ?? 0;
+  const progressPct =
+    totalPlanWeeks > 0
+      ? Math.min(1, Math.max(0, 1 - countdown / (totalPlanWeeks * 7)))
+      : 0;
+  const weekOfPlan = totalPlanWeeks > 0 ? Math.min(totalPlanWeeks, totalPlanWeeks - weeksUntil + 1) : 0;
 
   const weeklyVolumes = insights?.weekly_volumes ?? [];
   const hasWeekData = weeklyVolumes.length > 0;
@@ -326,9 +344,50 @@ export default function ProfileScreen() {
         {/* Race Countdown */}
         {profile && (
           <Card style={[styles.countdownCard, { borderColor: colors.primary + "40" }]}>
-            <Text style={[styles.countdownValue, { color: colors.primary }]}>{weeksUntil}</Text>
-            <Text style={[styles.countdownLabel, { color: colors.lightGray }]}>weeks to race day</Text>
-            <Text style={[styles.countdownDate, { color: colors.white }]}>{profile ? formatDate(profile.race_date) : ""}</Text>
+            <View style={styles.countdownHeader}>
+              <View style={styles.raceDayPill}>
+                <Ionicons name="flag" size={10} color={colors.primary} />
+                <Text style={styles.raceDayPillText}>RACE DAY</Text>
+              </View>
+              <Text style={styles.countdownRaceDate}>
+                {new Date(profile.race_date).toLocaleDateString("en-US", {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </Text>
+            </View>
+
+            <View style={styles.countdownMetricsRow}>
+              <View style={styles.countdownMetric}>
+                <Text style={styles.countdownMetricValue}>{weeksUntil}</Text>
+                <Text style={styles.countdownMetricLabel}>weeks</Text>
+              </View>
+              <View style={styles.countdownDivider} />
+              <View style={styles.countdownMetric}>
+                <Text style={styles.countdownMetricValue}>{daysRemainder}</Text>
+                <Text style={styles.countdownMetricLabel}>days</Text>
+              </View>
+              <View style={styles.countdownDivider} />
+              <View style={styles.countdownMetric}>
+                <Text style={styles.countdownMetricValue}>{countdown}</Text>
+                <Text style={styles.countdownMetricLabel}>total days</Text>
+              </View>
+            </View>
+
+            {totalPlanWeeks > 0 && (
+              <View style={styles.progressWrapper}>
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: `${progressPct * 100}%` }]} />
+                </View>
+                <View style={styles.progressLabelRow}>
+                  <Text style={styles.progressLabel}>
+                    Week {weekOfPlan} of {totalPlanWeeks}
+                  </Text>
+                  <Text style={styles.progressPct}>{Math.round(progressPct * 100)}%</Text>
+                </View>
+              </View>
+            )}
           </Card>
         )}
 
@@ -587,25 +646,93 @@ const makeStyles = (colors: ThemeColors) =>
       padding: SPACING.xs,
     },
     countdownCard: {
-      alignItems: "center",
       marginBottom: SPACING.md,
-      paddingVertical: SPACING.xl,
+      paddingVertical: SPACING.lg,
+      paddingHorizontal: SPACING.lg,
       backgroundColor: colors.darkGray,
       borderWidth: 1,
+      gap: SPACING.lg,
     },
-    countdownValue: {
-      fontSize: 64,
+    countdownHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    raceDayPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: colors.primary + "20",
+      paddingVertical: 4,
+      paddingHorizontal: SPACING.sm,
+      borderRadius: BORDER_RADIUS.xl,
+    },
+    raceDayPillText: {
+      fontSize: 10,
       fontWeight: "800",
-      lineHeight: 70,
+      letterSpacing: 1,
+      color: colors.primary,
     },
-    countdownLabel: {
-      fontSize: FONT_SIZES.md,
-      marginTop: SPACING.xs,
-    },
-    countdownDate: {
+    countdownRaceDate: {
       fontSize: FONT_SIZES.sm,
-      marginTop: SPACING.sm,
       fontWeight: "600",
+      color: colors.white,
+    },
+    countdownMetricsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    countdownMetric: {
+      flex: 1,
+      alignItems: "center",
+      gap: 2,
+    },
+    countdownMetricValue: {
+      fontSize: 40,
+      fontWeight: "800",
+      color: colors.primary,
+      lineHeight: 44,
+    },
+    countdownMetricLabel: {
+      fontSize: FONT_SIZES.xs,
+      color: colors.lightGray,
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
+      fontWeight: "600",
+    },
+    countdownDivider: {
+      width: 1,
+      height: 32,
+      backgroundColor: colors.mediumGray,
+    },
+    progressWrapper: {
+      gap: SPACING.xs,
+    },
+    progressTrack: {
+      height: 6,
+      backgroundColor: colors.mediumGray,
+      borderRadius: 3,
+      overflow: "hidden",
+    },
+    progressFill: {
+      height: "100%",
+      backgroundColor: colors.primary,
+      borderRadius: 3,
+    },
+    progressLabelRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+    },
+    progressLabel: {
+      fontSize: FONT_SIZES.xs,
+      color: colors.lightGray,
+      fontWeight: "600",
+    },
+    progressPct: {
+      fontSize: FONT_SIZES.xs,
+      color: colors.primary,
+      fontWeight: "700",
     },
     statsRow: {
       flexDirection: "row",
