@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
+import { Canvas, Path, Skia } from "@shopify/react-native-skia";
 import { Card } from "./Card";
 import { useTheme } from "../context/ThemeContext";
 import { ThemeColors, SPACING, FONT_SIZES, BORDER_RADIUS } from "../constants/theme";
@@ -29,11 +30,11 @@ const SPORT_LABELS: Record<string, string> = { swim: "Swim", bike: "Bike", run: 
 const SPORTS = ["swim", "bike", "run"] as const;
 
 const ZONE_COLORS: Record<number, string> = {
-  1: "#6B7280", // gray (recovery)
-  2: "#22C55E", // green (easy aerobic)
-  3: "#EAB308", // yellow (tempo)
-  4: "#F97316", // orange (threshold)
-  5: "#EF4444", // red (VO2)
+  1: "#6B7280",
+  2: "#22C55E",
+  3: "#EAB308",
+  4: "#F97316",
+  5: "#EF4444",
 };
 
 type IntensityBucket = "easy" | "moderate" | "hard";
@@ -54,27 +55,92 @@ const BUCKET_LABELS: Record<IntensityBucket, string> = {
   hard: "Hard",
 };
 
-const RHYTHM_HEIGHT = 56;
+// ── Donut chart ───────────────────────────────────────────────────────────────
+
+const DONUT_SIZE = 110;
+const DONUT_STROKE = 14;
+
+interface DonutSegment {
+  value: number;
+  color: string;
+}
+
+function SportDonut({ segments, trackColor }: { segments: DonutSegment[]; trackColor: string }) {
+  const total = segments.reduce((s, seg) => s + seg.value, 0);
+  const cx = DONUT_SIZE / 2;
+  const cy = DONUT_SIZE / 2;
+  const r = (DONUT_SIZE - DONUT_STROKE) / 2;
+
+  // Background track (full ring)
+  const trackPath = Skia.Path.Make();
+  trackPath.addCircle(cx, cy, r);
+
+  const paths: { path: ReturnType<typeof Skia.Path.Make>; color: string }[] = [];
+
+  if (total > 0) {
+    let startAngle = -90; // top
+    for (const seg of segments) {
+      if (seg.value <= 0) continue;
+      const sweep = (seg.value / total) * 360;
+      const path = Skia.Path.Make();
+      path.addArc(
+        { x: cx - r, y: cy - r, width: r * 2, height: r * 2 },
+        startAngle,
+        sweep,
+      );
+      paths.push({ path, color: seg.color });
+      startAngle += sweep;
+    }
+  }
+
+  return (
+    <Canvas style={{ width: DONUT_SIZE, height: DONUT_SIZE }}>
+      <Path
+        path={trackPath}
+        color={trackColor}
+        style="stroke"
+        strokeWidth={DONUT_STROKE}
+      />
+      {paths.map((p, i) => (
+        <Path
+          key={i}
+          path={p.path}
+          color={p.color}
+          style="stroke"
+          strokeWidth={DONUT_STROKE}
+          strokeCap="butt"
+        />
+      ))}
+    </Canvas>
+  );
+}
+
+// ── Card ──────────────────────────────────────────────────────────────────────
 
 export const WeekSummaryCard: React.FC<Props> = ({ weekIndex, phaseName, phaseFocus, sessions }) => {
   const { colors } = useTheme();
   const styles = makeStyles(colors);
 
   const totalMin = sessions.reduce((s, x) => s + x.duration_minutes, 0);
-  const totalHours = (totalMin / 60).toFixed(1);
+  const totalHours = totalMin / 60;
 
-  // Sport totals (for chip strip)
+  // Sport totals (donut + labels)
   const bySport: Record<string, number> = { swim: 0, bike: 0, run: 0 };
   for (const s of sessions) bySport[s.sport] = (bySport[s.sport] ?? 0) + s.duration_minutes;
 
-  // Intensity bucket totals (for distribution strip)
+  const donutSegments: DonutSegment[] = SPORTS.map((sp) => ({
+    value: bySport[sp] ?? 0,
+    color: SPORT_COLORS[sp],
+  }));
+
+  // Intensity distribution
   const byBucket: Record<IntensityBucket, number> = { easy: 0, moderate: 0, hard: 0 };
   for (const s of sessions) {
     const bucket = BUCKET_FOR_ZONE[s.zone] ?? "easy";
     byBucket[bucket] += s.duration_minutes;
   }
 
-  // Per-day rollup: total mins + hardest zone of the day
+  // Per-day rollup for mini dots strip
   const perDay: Record<string, { mins: number; hardestZone: number }> = {};
   for (const day of DAYS) perDay[day] = { mins: 0, hardestZone: 0 };
   for (const s of sessions) {
@@ -82,7 +148,6 @@ export const WeekSummaryCard: React.FC<Props> = ({ weekIndex, phaseName, phaseFo
     perDay[s.day].mins += s.duration_minutes;
     if (s.zone > perDay[s.day].hardestZone) perDay[s.day].hardestZone = s.zone;
   }
-  const maxDayMins = Math.max(...DAYS.map((d) => perDay[d].mins), 60);
 
   const hardestSession = [...sessions].sort((a, b) => b.zone - a.zone)[0];
 
@@ -93,12 +158,37 @@ export const WeekSummaryCard: React.FC<Props> = ({ weekIndex, phaseName, phaseFo
           <Text style={styles.weekLabel}>Week {weekIndex}</Text>
           {phaseName ? <Text style={styles.phaseName}>{phaseName} phase</Text> : null}
         </View>
-        <View style={styles.hoursChip}>
-          <Text style={styles.hoursText}>{totalHours}h</Text>
-        </View>
       </View>
 
       {phaseFocus ? <Text style={styles.phaseFocus}>{phaseFocus}</Text> : null}
+
+      {/* Donut + breakdown row */}
+      <View style={styles.donutRow}>
+        <View style={styles.donutWrap}>
+          <SportDonut segments={donutSegments} trackColor={colors.darkGray} />
+          <View style={styles.donutCenter} pointerEvents="none">
+            <Text style={styles.donutHours}>{totalHours.toFixed(1)}</Text>
+            <Text style={styles.donutHoursLabel}>hours</Text>
+          </View>
+        </View>
+
+        <View style={styles.breakdownCol}>
+          {SPORTS.map((sp) => {
+            const mins = bySport[sp] ?? 0;
+            const pct = totalMin > 0 ? Math.round((mins / totalMin) * 100) : 0;
+            return (
+              <View key={sp} style={styles.breakdownRow}>
+                <View style={[styles.breakdownDot, { backgroundColor: SPORT_COLORS[sp] }]} />
+                <Text style={styles.breakdownLabel}>{SPORT_LABELS[sp]}</Text>
+                <Text style={styles.breakdownValue}>
+                  {(mins / 60).toFixed(1)}h
+                  <Text style={styles.breakdownPct}>  {pct}%</Text>
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      </View>
 
       {/* Intensity distribution strip */}
       {totalMin > 0 && (
@@ -110,10 +200,7 @@ export const WeekSummaryCard: React.FC<Props> = ({ weekIndex, phaseName, phaseFo
               return (
                 <View
                   key={bucket}
-                  style={{
-                    flex: mins,
-                    backgroundColor: BUCKET_COLORS[bucket],
-                  }}
+                  style={{ flex: mins, backgroundColor: BUCKET_COLORS[bucket] }}
                 />
               );
             })}
@@ -135,50 +222,22 @@ export const WeekSummaryCard: React.FC<Props> = ({ weekIndex, phaseName, phaseFo
         </View>
       )}
 
-      {/* Day rhythm strip */}
-      <View style={styles.rhythmWrap}>
+      {/* Mini 7-day dot strip */}
+      <View style={styles.dotsRow}>
         {DAYS.map((day) => {
           const { mins, hardestZone } = perDay[day];
-          const heightPct = mins > 0 ? Math.max(mins / maxDayMins, 0.18) : 0;
-          const color = hardestZone > 0 ? ZONE_COLORS[hardestZone] : colors.darkGray;
+          const isRest = mins === 0;
           return (
-            <View key={day} style={styles.rhythmCol}>
-              <View style={styles.rhythmCell}>
-                {mins > 0 ? (
-                  <View
-                    style={[
-                      styles.rhythmPill,
-                      {
-                        height: `${heightPct * 100}%`,
-                        backgroundColor: color,
-                      },
-                    ]}
-                  >
-                    <Text style={styles.rhythmZoneText}>Z{hardestZone}</Text>
-                  </View>
-                ) : (
-                  <View style={[styles.rhythmRest]}>
-                    <Text style={styles.rhythmRestText}>·</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.rhythmDayLabel}>{DAY_ABBR[day]}</Text>
-            </View>
-          );
-        })}
-      </View>
-
-      {/* Sport split */}
-      <View style={styles.sportRow}>
-        {SPORTS.map((sp) => {
-          const mins = bySport[sp] ?? 0;
-          if (mins === 0) return null;
-          return (
-            <View key={sp} style={styles.sportChip}>
-              <View style={[styles.sportDot, { backgroundColor: SPORT_COLORS[sp] }]} />
-              <Text style={styles.sportChipText}>
-                {SPORT_LABELS[sp]} {(mins / 60).toFixed(1)}h
-              </Text>
+            <View key={day} style={styles.dotCol}>
+              <View
+                style={[
+                  styles.dot,
+                  isRest
+                    ? { backgroundColor: colors.darkGray, width: 6, height: 6 }
+                    : { backgroundColor: ZONE_COLORS[hardestZone] },
+                ]}
+              />
+              <Text style={styles.dotDayLabel}>{DAY_ABBR[day]}</Text>
             </View>
           );
         })}
@@ -200,20 +259,67 @@ const makeStyles = (colors: ThemeColors) =>
     weekLabel: { fontSize: FONT_SIZES.lg, fontWeight: "700", color: colors.white },
     phaseName: { fontSize: FONT_SIZES.xs, color: colors.lightGray, marginTop: 2 },
     phaseFocus: { fontSize: FONT_SIZES.sm, color: colors.lightGray, fontStyle: "italic" },
-    hoursChip: {
-      backgroundColor: colors.darkGray,
-      paddingVertical: SPACING.xs,
-      paddingHorizontal: SPACING.sm,
-      borderRadius: BORDER_RADIUS.xl,
+
+    // Donut row
+    donutRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: SPACING.lg,
     },
-    hoursText: { fontSize: FONT_SIZES.sm, fontWeight: "700", color: colors.primary },
+    donutWrap: {
+      width: DONUT_SIZE,
+      height: DONUT_SIZE,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    donutCenter: {
+      position: "absolute",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    donutHours: {
+      fontSize: 26,
+      fontWeight: "800",
+      color: colors.white,
+      lineHeight: 30,
+    },
+    donutHoursLabel: {
+      fontSize: 10,
+      fontWeight: "600",
+      color: colors.lightGray,
+      textTransform: "uppercase",
+      letterSpacing: 1,
+    },
+    breakdownCol: { flex: 1, gap: SPACING.sm, justifyContent: "center" },
+    breakdownRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: SPACING.sm,
+    },
+    breakdownDot: { width: 10, height: 10, borderRadius: 5 },
+    breakdownLabel: {
+      flex: 1,
+      fontSize: FONT_SIZES.sm,
+      color: colors.lightGray,
+      fontWeight: "600",
+    },
+    breakdownValue: {
+      fontSize: FONT_SIZES.sm,
+      color: colors.white,
+      fontWeight: "700",
+    },
+    breakdownPct: {
+      fontSize: FONT_SIZES.xs,
+      color: colors.lightGray,
+      fontWeight: "500",
+    },
 
     // Intensity strip
     intensityWrap: { gap: 6 },
     intensityBar: {
       flexDirection: "row",
-      height: 10,
-      borderRadius: 5,
+      height: 8,
+      borderRadius: 4,
       overflow: "hidden",
       backgroundColor: colors.darkGray,
     },
@@ -234,62 +340,23 @@ const makeStyles = (colors: ThemeColors) =>
       fontWeight: "600",
     },
 
-    // Rhythm strip
-    rhythmWrap: {
+    // Mini dot strip
+    dotsRow: {
       flexDirection: "row",
       gap: SPACING.xs,
-      marginTop: SPACING.xs,
+      justifyContent: "space-between",
     },
-    rhythmCol: { flex: 1, alignItems: "center", gap: 6 },
-    rhythmCell: {
-      width: "100%",
-      height: RHYTHM_HEIGHT,
-      justifyContent: "flex-end",
-      alignItems: "center",
+    dotCol: { flex: 1, alignItems: "center", gap: 4 },
+    dot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
     },
-    rhythmPill: {
-      width: "100%",
-      borderRadius: BORDER_RADIUS.sm,
-      alignItems: "center",
-      justifyContent: "center",
-      paddingVertical: 2,
-    },
-    rhythmZoneText: {
-      fontSize: 10,
-      fontWeight: "800",
-      color: colors.background,
-    },
-    rhythmRest: {
-      width: "100%",
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: colors.darkGray,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    rhythmRestText: {
-      fontSize: 10,
-      color: colors.lightGray,
-      lineHeight: 6,
-    },
-    rhythmDayLabel: {
+    dotDayLabel: {
       fontSize: 10,
       color: colors.lightGray,
       fontWeight: "600",
     },
 
-    // Sport split chips
-    sportRow: { flexDirection: "row", gap: SPACING.sm, flexWrap: "wrap" },
-    sportChip: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 4,
-      paddingHorizontal: SPACING.sm,
-      paddingVertical: 2,
-      borderRadius: BORDER_RADIUS.sm,
-      backgroundColor: colors.darkGray,
-    },
-    sportDot: { width: 6, height: 6, borderRadius: 3 },
-    sportChipText: { fontSize: FONT_SIZES.xs, color: colors.white, fontWeight: "600" },
     keySession: { fontSize: FONT_SIZES.xs, color: colors.lightGray },
   });
