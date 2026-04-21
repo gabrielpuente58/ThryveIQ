@@ -18,51 +18,76 @@ import { useOnboarding } from "../../context/OnboardingContext";
 import { ThemeColors, SPACING, FONT_SIZES, BORDER_RADIUS } from "../../constants/theme";
 import { useTheme } from "../../context/ThemeContext";
 
-const INPUT_ACCESSORY_ID = "weekly-hours-done";
+const INPUT_ACCESSORY_ID = "hours-range-done";
 
-export default function WeeklyHoursScreen() {
+export default function HoursRangeScreen() {
   const router = useRouter();
   const { data, update } = useOnboarding();
   const { colors } = useTheme();
   const styles = makeStyles(colors);
 
-  const handleChange = (text: string) => {
+  const handleChange = (field: "hours_min" | "hours_max") => (text: string) => {
     const cleaned = text.replace(/[^0-9.]/g, "");
     const num = parseFloat(cleaned);
-    update({ weekly_hours: isNaN(num) ? undefined : num });
+    update({ [field]: isNaN(num) ? undefined : num });
   };
+
+  const minValue = data.hours_min;
+  const maxValue = data.hours_max;
+  const isValid =
+    typeof minValue === "number" &&
+    typeof maxValue === "number" &&
+    minValue > 0 &&
+    maxValue > 0 &&
+    maxValue >= minValue;
 
   return (
     <Pressable style={{ flex: 1 }} onPress={Keyboard.dismiss}>
       <Screen style={styles.container}>
-        <ProgressBar current={3} total={6} />
+        <ProgressBar current={2} total={4} />
         <KeyboardAvoidingView
           style={styles.content}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
           <Text style={styles.title}>Weekly training hours</Text>
           <Text style={styles.subtitle}>
-            How many hours per week can you dedicate to training?
+            What's the range of hours you can commit per week? We'll use the max as your target
+            and the min for recovery weeks.
           </Text>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. 8"
-              placeholderTextColor={colors.lightGray}
-              keyboardType="decimal-pad"
-              inputAccessoryViewID={Platform.OS === "ios" ? INPUT_ACCESSORY_ID : undefined}
-              value={data.weekly_hours !== undefined ? String(data.weekly_hours) : ""}
-              onChangeText={handleChange}
-            />
-            <Text style={styles.unit}>hours / week</Text>
+          <View style={styles.inputsRow}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Minimum</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. 5"
+                placeholderTextColor={colors.lightGray}
+                keyboardType="decimal-pad"
+                inputAccessoryViewID={Platform.OS === "ios" ? INPUT_ACCESSORY_ID : undefined}
+                value={minValue !== undefined ? String(minValue) : ""}
+                onChangeText={handleChange("hours_min")}
+              />
+            </View>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Maximum</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. 10"
+                placeholderTextColor={colors.lightGray}
+                keyboardType="decimal-pad"
+                inputAccessoryViewID={Platform.OS === "ios" ? INPUT_ACCESSORY_ID : undefined}
+                value={maxValue !== undefined ? String(maxValue) : ""}
+                onChangeText={handleChange("hours_max")}
+              />
+            </View>
           </View>
+          <Text style={styles.unit}>hours / week</Text>
         </KeyboardAvoidingView>
         <View style={styles.buttons}>
           <Button title="Back" variant="secondary" onPress={() => router.back()} />
           <Button
             title="Next"
             onPress={() => router.push("/onboarding/days-available")}
-            disabled={!data.weekly_hours || data.weekly_hours <= 0}
+            disabled={!isValid}
           />
         </View>
       </Screen>
@@ -98,10 +123,18 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.lightGray,
     lineHeight: 22,
   },
-  inputRow: {
+  inputsRow: {
     flexDirection: "row",
-    alignItems: "center",
     gap: SPACING.md,
+  },
+  inputGroup: {
+    flex: 1,
+    gap: SPACING.xs,
+  },
+  label: {
+    fontSize: FONT_SIZES.sm,
+    color: colors.lightGray,
+    fontWeight: "600",
   },
   input: {
     backgroundColor: colors.mediumGray,
@@ -109,12 +142,12 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     padding: SPACING.md,
     fontSize: FONT_SIZES.xl,
     color: colors.white,
-    minWidth: 100,
     textAlign: "center",
   },
   unit: {
     fontSize: FONT_SIZES.md,
     color: colors.lightGray,
+    textAlign: "center",
   },
   buttons: {
     flexDirection: "row",

@@ -2,7 +2,7 @@
 Unit tests for backend/services/tools/compute_zones.py
 
 Tests cover the pure zone math in compute_zones_math() without needing
-LangChain or Ollama — these should always be fast and deterministic.
+LangChain or the LLM — these should always be fast and deterministic.
 """
 import pytest
 from services.tools.compute_zones import compute_zones_math, _parse_pace_to_seconds, _seconds_to_pace
@@ -136,10 +136,11 @@ class TestPowerZones:
         assert self.pw["Z4"]["label"] == "Threshold"
         assert self.pw["Z5"]["label"] == "VO2max+"
 
-    def test_zero_ftp_uses_default(self):
+    def test_zero_ftp_returns_none_power_zones(self):
+        """No FTP provided → power_zones is None (targets require a real meter)."""
         result = compute_zones_math(ftp=0, lthr=155, css="5:00")
-        # default FTP = 200
-        assert result["power_zones"]["Z4"]["min"] == round(200 * 0.91)
+        assert result["power_zones"] is None
+        assert result["inputs"]["has_ftp"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -215,8 +216,12 @@ class TestComputeZonesMath:
         assert hr["Z4"]["min"] == round(170 * 0.95)
 
     def test_first_timer_defaults(self):
-        """First-timer with unknown benchmarks gets sensible defaults."""
+        """First-timer with unknown benchmarks: HR+pace default, power is None."""
         result = compute_zones_math(ftp=0, lthr=0, css="")
-        assert result["inputs"]["ftp"] == 200
+        assert result["inputs"]["ftp"] == 0
+        assert result["inputs"]["has_ftp"] is False
         assert result["inputs"]["lthr"] == 155
         assert result["inputs"]["css"] == "5:00"
+        assert result["power_zones"] is None
+        assert result["hr_zones"] is not None
+        assert result["pace_zones"] is not None

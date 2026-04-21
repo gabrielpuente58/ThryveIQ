@@ -9,6 +9,11 @@ router = APIRouter(prefix="/profiles", tags=["profiles"])
 async def create_profile(profile: AthleteProfileRequest):
     data = profile.model_dump()
     data["race_date"] = data["race_date"].isoformat()
+    # Keep weekly_hours populated for the existing plan pipeline (= hours_max cap).
+    data["weekly_hours"] = profile.hours_max
+    # Default focus to weakest discipline when caller doesn't specify one.
+    if not data.get("focus_discipline"):
+        data["focus_discipline"] = profile.weakest_discipline
 
     result = (
         supabase.table("athlete_profiles")
@@ -41,6 +46,10 @@ async def get_profile(user_id: str):
 @router.patch("/{user_id}")
 async def update_profile(user_id: str, body: UpdateProfileRequest):
     update_data = {k: v for k, v in body.model_dump().items() if v is not None}
+
+    # If hours_max changed, mirror to weekly_hours for the plan pipeline.
+    if "hours_max" in update_data:
+        update_data["weekly_hours"] = update_data["hours_max"]
 
     if not update_data:
         return {"success": True}

@@ -1,14 +1,12 @@
 import React, { createContext, useContext, useState } from "react";
 
 export interface OnboardingData {
-  goal?: "first_timer" | "recreational" | "competitive";
   race_date?: string;
-  experience?: "first_timer" | "recreational" | "competitive";
-  current_background?: string;
-  weekly_hours?: number;
+  hours_min?: number;
+  hours_max?: number;
   days_available?: number;
-  strongest_discipline?: "swim" | "bike" | "run";
-  weakest_discipline?: "swim" | "bike" | "run";
+  ftp?: number;
+  lthr?: number;
 }
 
 interface OnboardingContextType {

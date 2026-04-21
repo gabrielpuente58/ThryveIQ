@@ -29,7 +29,7 @@ export default function RaceDateScreen() {
 
   return (
     <Screen style={styles.container}>
-      <ProgressBar current={1} total={6} />
+      <ProgressBar current={1} total={4} />
       <View style={styles.content}>
         <Text style={styles.title}>When is your race?</Text>
         <Text style={styles.subtitle}>Pick the exact date of your target event.</Text>
@@ -49,7 +49,7 @@ export default function RaceDateScreen() {
         <Button title="Back" variant="secondary" onPress={() => router.back()} />
         <Button
           title="Next"
-          onPress={() => router.push("/onboarding/experience")}
+          onPress={() => router.push("/onboarding/hours-range")}
           disabled={!data.race_date}
         />
       </View>

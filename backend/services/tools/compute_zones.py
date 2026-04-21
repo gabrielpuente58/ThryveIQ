@@ -18,6 +18,17 @@ def _parse_pace_to_seconds(pace: str) -> int:
     return minutes * 60 + seconds
 
 
+def _is_valid_pace(pace: str) -> bool:
+    """Return True if pace is a parseable 'MM:SS' string."""
+    if not pace or not pace.strip():
+        return False
+    try:
+        _parse_pace_to_seconds(pace)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
 def _seconds_to_pace(seconds: int) -> str:
     """Convert total seconds back to 'MM:SS' pace string."""
     m = seconds // 60
@@ -33,17 +44,29 @@ def compute_zones_math(ftp: int, lthr: int, css: str) -> dict:
     Power zones use the 5-zone Coggan model based on FTP (Functional Threshold Power).
     Pace zones use running threshold pace (CSS) as the anchor.
 
+    Optional benchmarks: if the athlete hasn't done an FTP test, pass ftp=0 — power
+    zones will be returned as None (power targets require a real meter). HR and pace
+    fall back to conservative defaults when LTHR/CSS are missing since those zones
+    can still be trained to effort.
+
     Args:
-        ftp: Functional Threshold Power in watts. Use 0 or omit for untrained athletes.
-        lthr: Lactate Threshold Heart Rate in bpm. Use 0 or omit for untrained athletes.
-        css: Running/pace threshold as 'MM:SS' per km. E.g. '5:00' for 5 min/km.
+        ftp: Functional Threshold Power in watts. Pass 0 if athlete has no power meter /
+             hasn't tested — power_zones will be None.
+        lthr: Lactate Threshold Heart Rate in bpm. Pass 0 for a sensible default (155).
+        css: Running/pace threshold as 'MM:SS' per km. Pass '' for a sensible default (5:00).
 
     Returns:
-        Dict with power_zones, hr_zones, and pace_zones — each zone has min/max in
-        their respective units (watts, bpm, 'MM:SS' string).
+        Dict with power_zones, hr_zones, pace_zones, and inputs. power_zones may be None
+        when FTP is unknown.
     """
+    has_ftp = bool(ftp) and ftp > 0
+    has_lthr = bool(lthr) and lthr > 0
+    # Treat malformed pace strings (e.g. '5' instead of '5:00') as "not provided"
+    # so zone math falls back to defaults rather than crashing plan generation.
+    has_css = _is_valid_pace(css)
+
     # --- HR Zones (5-zone model anchored at LTHR) ---
-    if lthr <= 0:
+    if not has_lthr:
         lthr = 155  # sensible default for a recreational triathlete
 
     hr_zones = {
@@ -55,22 +78,23 @@ def compute_zones_math(ftp: int, lthr: int, css: str) -> dict:
     }
 
     # --- Power Zones (5-zone Coggan model anchored at FTP) ---
-    if ftp <= 0:
-        ftp = 200  # sensible default
-
-    power_zones = {
-        "Z1": {"label": "Recovery",   "min": None,              "max": round(ftp * 0.55)},
-        "Z2": {"label": "Endurance",  "min": round(ftp * 0.56), "max": round(ftp * 0.75)},
-        "Z3": {"label": "Tempo",      "min": round(ftp * 0.76), "max": round(ftp * 0.90)},
-        "Z4": {"label": "Threshold",  "min": round(ftp * 0.91), "max": round(ftp * 1.05)},
-        "Z5": {"label": "VO2max+",    "min": round(ftp * 1.06), "max": None},
-    }
+    # If no FTP provided, return None — targets would be misleading without a real meter.
+    if has_ftp:
+        power_zones = {
+            "Z1": {"label": "Recovery",   "min": None,              "max": round(ftp * 0.55)},
+            "Z2": {"label": "Endurance",  "min": round(ftp * 0.56), "max": round(ftp * 0.75)},
+            "Z3": {"label": "Tempo",      "min": round(ftp * 0.76), "max": round(ftp * 0.90)},
+            "Z4": {"label": "Threshold",  "min": round(ftp * 0.91), "max": round(ftp * 1.05)},
+            "Z5": {"label": "VO2max+",    "min": round(ftp * 1.06), "max": None},
+        }
+    else:
+        power_zones = None
 
     # --- Pace Zones (5-zone model anchored at CSS / running threshold pace) ---
     # Convention: min_pace = slowest allowable pace for this zone (most seconds, open end = None)
     #             max_pace = fastest allowable pace for this zone (fewest seconds, open end = None)
     # Example for CSS = 5:00/km: Z1 spans >6:15, Z5 spans <4:45.
-    if not css or css.strip() == "":
+    if not has_css:
         css = "5:00"  # default 5:00/km for recreational runner
 
     css_sec = _parse_pace_to_seconds(css)
@@ -107,7 +131,14 @@ def compute_zones_math(ftp: int, lthr: int, css: str) -> dict:
         "power_zones": power_zones,
         "hr_zones": hr_zones,
         "pace_zones": pace_zones,
-        "inputs": {"ftp": ftp, "lthr": lthr, "css": css},
+        "inputs": {
+            "ftp": ftp if has_ftp else 0,
+            "lthr": lthr,
+            "css": css,
+            "has_ftp": has_ftp,
+            "has_lthr": has_lthr,
+            "has_css": has_css,
+        },
     }
 
 

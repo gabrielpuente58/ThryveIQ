@@ -17,7 +17,7 @@ export default function DaysAvailableScreen() {
 
   return (
     <Screen style={styles.container}>
-      <ProgressBar current={4} total={6} />
+      <ProgressBar current={3} total={4} />
       <View style={styles.content}>
         <Text style={styles.title}>Training days per week</Text>
         <Text style={styles.subtitle}>
@@ -41,7 +41,7 @@ export default function DaysAvailableScreen() {
         <Button title="Back" variant="secondary" onPress={() => router.back()} />
         <Button
           title="Next"
-          onPress={() => router.push("/onboarding/strongest")}
+          onPress={() => router.push("/onboarding/benchmarks")}
           disabled={!data.days_available}
         />
       </View>

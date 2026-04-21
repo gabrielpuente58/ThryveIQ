@@ -41,23 +41,22 @@ class TestUpdateProfileEndpoint:
             from main import app
             return TestClient(app)
 
-    def test_patch_weekly_hours_builds_correct_update_dict(self):
-        """PATCH with weekly_hours only should update only that field."""
-        mock_supabase, mock_table = _make_supabase_mock([{"user_id": "abc", "weekly_hours": 12.0}])
+    def test_patch_hours_max_mirrors_to_weekly_hours(self):
+        """PATCH hours_max should also set weekly_hours (legacy pipeline mirror)."""
+        mock_supabase, mock_table = _make_supabase_mock([{"user_id": "abc", "hours_max": 12.0}])
 
         with patch("routers.profiles.supabase", mock_supabase):
             from main import app
             client = TestClient(app)
-            response = client.patch("/profiles/abc", json={"weekly_hours": 12.0})
+            response = client.patch("/profiles/abc", json={"hours_max": 12.0})
 
         assert response.status_code == 200
         assert response.json() == {"success": True}
 
-        # Verify .update() was called with only weekly_hours
         call_args = mock_table.update.call_args
         assert call_args is not None
         update_dict = call_args[0][0]
-        assert update_dict == {"weekly_hours": 12.0}
+        assert update_dict == {"hours_max": 12.0, "weekly_hours": 12.0}
 
     def test_patch_multiple_fields(self):
         """PATCH with several fields should include all non-None values."""
@@ -68,13 +67,18 @@ class TestUpdateProfileEndpoint:
             client = TestClient(app)
             response = client.patch(
                 "/profiles/abc",
-                json={"weekly_hours": 10.0, "days_available": 5, "goal": "competitive"},
+                json={"hours_max": 10.0, "days_available": 5, "goal": "competitive"},
             )
 
         assert response.status_code == 200
         call_args = mock_table.update.call_args
         update_dict = call_args[0][0]
-        assert update_dict == {"weekly_hours": 10.0, "days_available": 5, "goal": "competitive"}
+        assert update_dict == {
+            "hours_max": 10.0,
+            "weekly_hours": 10.0,
+            "days_available": 5,
+            "goal": "competitive",
+        }
 
     def test_patch_all_none_sends_nothing(self):
         """PATCH with all None values should return success without calling supabase update."""
@@ -100,10 +104,10 @@ class TestUpdateProfileEndpoint:
             client = TestClient(app)
             response = client.patch(
                 "/profiles/abc",
-                json={"weekly_hours": 8.0, "days_available": None},
+                json={"hours_max": 8.0, "days_available": None},
             )
 
         assert response.status_code == 200
         update_dict = mock_table.update.call_args[0][0]
         assert "days_available" not in update_dict
-        assert update_dict == {"weekly_hours": 8.0}
+        assert update_dict == {"hours_max": 8.0, "weekly_hours": 8.0}
