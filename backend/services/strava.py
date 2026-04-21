@@ -1,7 +1,7 @@
 import os
 import time
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 import httpx
 from dotenv import load_dotenv
 from db.strava import get_tokens, upsert_tokens
@@ -112,6 +112,17 @@ async def get_insights(user_id: str) -> dict:
         }
     )
 
+    # Pre-seed the 8 most recent ISO weeks so empty weeks still render as 0 bars.
+    today = datetime.now()
+    monday_this_week = today - timedelta(days=today.weekday())
+    recent_weeks: list[str] = []
+    for i in range(8):
+        wk_date = monday_this_week - timedelta(weeks=i)
+        recent_weeks.append(wk_date.strftime("%G-W%V"))
+    recent_weeks.reverse()  # oldest → newest
+    for wk in recent_weeks:
+        _ = week_data[wk]  # touch to materialize the defaultdict entry
+
     total_activities = 0
     for act in activities:
         sport_type = act.get("sport_type") or act.get("type", "")
@@ -140,8 +151,8 @@ async def get_insights(user_id: str) -> dict:
         week_data[week_key][discipline]["moving_seconds"] += moving_seconds
         total_activities += 1
 
-    # Sort by ISO week and keep last 8 weeks that have data
-    sorted_weeks = sorted(week_data.keys())[-8:]
+    # Always show the 8 most recent ISO weeks, even if a week has no activities.
+    sorted_weeks = recent_weeks
 
     weekly_volumes: list[WeeklyVolume] = []
     for wk in sorted_weeks:
