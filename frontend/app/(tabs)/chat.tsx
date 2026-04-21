@@ -9,7 +9,6 @@ import {
   TouchableOpacity,
   Keyboard,
   TextInput,
-  ScrollView,
   NativeSyntheticEvent,
   TextInputKeyPressEventData,
 } from "react-native";
@@ -142,7 +141,7 @@ export default function ChatScreen() {
           <View style={styles.avatarSlot}>
             {showAvatar ? (
               <View style={styles.avatar}>
-                <Ionicons name="sparkles" size={12} color={colors.background} />
+                <Ionicons name="pulse" size={12} color={colors.background} />
               </View>
             ) : null}
           </View>
@@ -171,7 +170,7 @@ export default function ChatScreen() {
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <View style={styles.headerAvatar}>
-              <Ionicons name="sparkles" size={14} color={colors.background} />
+              <Ionicons name="pulse" size={14} color={colors.background} />
             </View>
             <View>
               <Text style={styles.title}>AI Coach</Text>
@@ -199,23 +198,22 @@ export default function ChatScreen() {
               {isEmptyConversation && !isLoading && (
                 <View style={styles.suggestionsWrapper}>
                   <Text style={styles.suggestionsLabel}>Try asking</Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.suggestionsRow}
-                  >
+                  <View style={styles.suggestionsList}>
                     {SUGGESTED_PROMPTS.map((p, i) => (
                       <TouchableOpacity
                         key={i}
-                        style={styles.suggestionChip}
+                        style={styles.suggestionRow}
                         onPress={() => sendMessage(p.text)}
                         activeOpacity={0.7}
                       >
-                        <Ionicons name={p.icon} size={14} color={colors.primary} />
-                        <Text style={styles.suggestionChipText}>{p.text}</Text>
+                        <View style={styles.suggestionIcon}>
+                          <Ionicons name={p.icon} size={16} color={colors.primary} />
+                        </View>
+                        <Text style={styles.suggestionRowText}>{p.text}</Text>
+                        <Ionicons name="arrow-up" size={14} color={colors.lightGray} style={styles.suggestionArrow} />
                       </TouchableOpacity>
                     ))}
-                  </ScrollView>
+                  </View>
                 </View>
               )}
             </>
@@ -379,26 +377,36 @@ const makeStyles = (colors: ThemeColors) =>
       letterSpacing: 1,
       paddingHorizontal: SPACING.xs,
     },
-    suggestionsRow: {
+    suggestionsList: {
       gap: SPACING.sm,
-      paddingVertical: SPACING.xs,
-      paddingHorizontal: SPACING.xs,
     },
-    suggestionChip: {
+    suggestionRow: {
       flexDirection: "row",
       alignItems: "center",
-      gap: SPACING.xs,
+      gap: SPACING.md,
       backgroundColor: colors.darkGray,
       borderWidth: 1,
       borderColor: colors.mediumGray,
-      borderRadius: BORDER_RADIUS.xl,
-      paddingVertical: SPACING.sm,
+      borderRadius: BORDER_RADIUS.md,
+      paddingVertical: SPACING.md,
       paddingHorizontal: SPACING.md,
     },
-    suggestionChipText: {
+    suggestionIcon: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: colors.primary + "20",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    suggestionRowText: {
+      flex: 1,
       fontSize: FONT_SIZES.sm,
       color: colors.white,
       fontWeight: "500",
+    },
+    suggestionArrow: {
+      transform: [{ rotate: "45deg" }],
     },
 
     inputContainer: {
