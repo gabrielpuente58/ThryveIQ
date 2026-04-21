@@ -24,11 +24,12 @@ from __future__ import annotations
 import json
 import operator
 import os
+import re
 from typing import Annotated, TypedDict
 
 from dotenv import load_dotenv
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_ollama import ChatOllama
 from langgraph.graph import END, START, StateGraph
 
 from models.workout_expander import WorkoutDetail
@@ -36,8 +37,7 @@ from services.tools.compute_zones import compute_zones
 
 load_dotenv()
 
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL_EXPANDER", "claude-haiku-4-5-20251001")
 
 _MAX_TOOL_LOOPS = 5
 
@@ -176,6 +176,18 @@ def _zones_summary(zones: dict) -> str:
     return "\n".join(lines) if lines else "No zone data provided."
 
 
+def _extract_json(text: str) -> str:
+    """Pull a JSON object out of an LLM response that may include prose/fences."""
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fence:
+        return fence.group(1)
+    first = text.find("{")
+    last = text.rfind("}")
+    if first != -1 and last != -1 and last > first:
+        return text[first : last + 1]
+    return text.strip()
+
+
 def _parse_workout_detail(content: str | dict, session: dict) -> WorkoutDetail:
     """
     Parse and validate the LLM's JSON output into a WorkoutDetail.
@@ -187,7 +199,7 @@ def _parse_workout_detail(content: str | dict, session: dict) -> WorkoutDetail:
     if isinstance(content, dict):
         data = content
     else:
-        data = json.loads(content)
+        data = json.loads(_extract_json(content))
 
     # Enforce session_id matches the skeleton
     data["session_id"] = session.get("id", data.get("session_id", ""))
@@ -229,12 +241,13 @@ def _parse_workout_detail(content: str | dict, session: dict) -> WorkoutDetail:
 # LLM instance
 # ---------------------------------------------------------------------------
 
-def _make_llm() -> ChatOllama:
-    return ChatOllama(
-        model=OLLAMA_MODEL,
-        base_url=OLLAMA_HOST,
+def _make_llm() -> ChatAnthropic:
+    return ChatAnthropic(
+        model_name=ANTHROPIC_MODEL,
         temperature=0,
-        format="json",
+        max_tokens=2048,
+        timeout=60,
+        stop=None,
     )
 
 
@@ -313,6 +326,12 @@ def _parse_result(state: WorkoutExpanderState) -> dict:
     if content is None:
         raise ValueError("Workout Expander: no AIMessage content found to parse.")
 
+    if isinstance(content, list):
+        content = "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in content
+        ).strip()
+
     try:
         result = _parse_workout_detail(content, state["session"])
     except Exception as exc:
@@ -387,7 +406,7 @@ async def run_workout_expander(
     Run the Workout Expander StateGraph for a single session skeleton.
 
     Uses a LangGraph StateGraph with:
-    - ChatOllama (format="json", temperature=0) for deterministic, structured output
+    - ChatAnthropic (temperature=0) for deterministic, structured output
     - compute_zones tool for optional zone range lookups
     - _parse_workout_detail() to validate the final AIMessage into a WorkoutDetail
 

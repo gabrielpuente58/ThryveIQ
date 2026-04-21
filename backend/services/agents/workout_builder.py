@@ -1,492 +1,325 @@
 """
-Workout Builder Agent — Agent 2 of 3 in ThryveIQ's LangGraph plan generation pipeline.
+Workout Builder Agent — proposes a FULL training week (structure + descriptions).
 
-Responsibility:
-  - Takes a pre-built week skeleton (sessions with day, sport, duration, zone
-    already set by the rule engine) and adds coaching descriptions to each session.
-  - Cannot change duration, zone, day, or sport — descriptions ONLY.
-  - Uses score_intensity_distribution to verify intensity balance before writing.
+This is the central plan-generation agent. Given athlete context, it decides:
+  - which days to train
+  - which sport on each day
+  - session durations, zones, and session_type (long/tempo/brick/etc.)
+  - a coaching description for each session
 
-Tools available to this agent:
-  - compute_zones: look up athlete HR/power/pace zone ranges
-  - score_intensity_distribution: verify weekly intensity balance
+A deterministic validator then checks the proposal against hard training rules.
+If invalid, the validator's issues are fed back into the next attempt (max 2 retries).
 
-Output:
-  - WeekWithDescriptions: validated Pydantic model with all sessions described.
-
-Graph structure:
-  START → call_llm → routing_function → run_tool → call_llm (loop)
-                                      → parse_result → END
+The deterministic rule engine no longer picks days or sports — only zone-anchored
+interval attachment happens downstream in week_pipeline._attach_intervals.
 """
 from __future__ import annotations
 
 import json
-import operator
+import logging
 import os
-from typing import Annotated, TypedDict
+import re
 
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_ollama import ChatOllama
-from langgraph.graph import END, START, StateGraph
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from models.workout_builder import SessionWithDescription, WeekWithDescriptions
-from services.tools.compute_zones import compute_zones
-from services.tools.score_intensity_distribution import score_intensity_distribution
+from services.tools.validate_week_structure import validate_week_structure_logic
 
 load_dotenv()
 
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL_BUILDER", "claude-haiku-4-5-20251001")
 
-_MAX_TOOL_LOOPS = 5
+logger = logging.getLogger(__name__)
 
-_ZONE_LABELS = {
-    1: "Recovery",
-    2: "Aerobic",
-    3: "Tempo",
-    4: "Threshold",
-    5: "VO2max",
-}
+_ZONE_LABELS = {1: "Recovery", 2: "Aerobic", 3: "Tempo", 4: "Threshold", 5: "VO2max"}
 
-_SYSTEM = """You are an expert Ironman 70.3 triathlon coach writing session descriptions.
 
-Your ONLY job is to fill in the `description` field for each session in the week skeleton.
-Do NOT change any other field — id, week, day, sport, duration_minutes, zone, and zone_label
-are all set by the rule engine and are GROUND TRUTH. Copy them exactly.
+_SYSTEM = """You are an expert Ironman 70.3 triathlon coach designing ONE training week.
 
-DESCRIPTION REQUIREMENTS:
-- 2-3 sentences per session
-- Include: what the effort should feel like (e.g. "conversational", "comfortably hard")
-- Include: a specific technique cue or focus for the sport
-- Include: the zone target and what that means in practical terms
-- Include: pacing or cadence notes where relevant
-- Tailor language to the athlete's experience level and which discipline is weakest
+You decide day, sport, duration, zone, session_type, AND description for every session.
+Every choice must respect the athlete's hours budget, days available, phase focus, and
+last week's feedback.
 
-OUTPUT FORMAT — return exactly this JSON structure (no extra fields, no markdown):
+HARD RULES (validator will reject violations):
+1. Total minutes must fall within hours_min and hours_max * 60.
+2. Use at most days_available distinct training days.
+3. Max 2 sessions per day, and if 2 they MUST be a brick: bike first then run, same day.
+4. Max 2 hard sessions (zone >= 4) per week.
+5. NO back-to-back hard run days (zone >= 4).
+6. Long bike duration >= long run duration.
+7. Ramp rate <= 10% over previous week minutes (unless recovery/taper).
+
+WEEK DESIGN PRINCIPLES:
+- Polarize intensity: most time in Z1-Z2, limited time in Z3-Z5.
+- Every non-recovery week should include ONE long bike (75-180 min) and ONE long run (45-90 min).
+- Build/Peak phases should include ONE brick (bike→run same day) most weeks.
+- Swims should emphasize drills/technique (session_type="drill") or structured intervals.
+- Give the athlete a clear Key Session (the hardest/longest workout) and support it with easy days.
+
+SESSION_TYPE values (pick the best fit per session):
+  long, endurance, tempo, threshold, intervals, recovery, brick_bike, brick_run, drill, race_pace
+
+IDs: use "w{week_index}_{day_lowercase}_{sport}" — e.g. "w3_saturday_bike".
+For brick days: "w3_saturday_brick_bike" and "w3_saturday_brick_run".
+
+Return ONLY valid JSON — no markdown, no prose, no trailing commentary.
+
+JSON SHAPE:
 {
   "week_index": <int>,
   "phase_name": "<string>",
   "sessions": [
     {
-      "id": "<copy from skeleton>",
-      "week": <copy from skeleton>,
-      "day": "<copy from skeleton>",
-      "sport": "<copy from skeleton>",
-      "duration_minutes": <copy from skeleton>,
-      "zone": <copy from skeleton>,
-      "zone_label": "<copy from skeleton>",
-      "description": "<YOUR 2-3 sentence coaching description>"
+      "id": "<string>",
+      "week": <int>,
+      "day": "<Monday|Tuesday|...|Sunday>",
+      "sport": "<swim|bike|run>",
+      "duration_minutes": <int>,
+      "zone": <1-5>,
+      "zone_label": "<Recovery|Aerobic|Tempo|Threshold|VO2max>",
+      "session_type": "<one of the values above>",
+      "description": "<2-3 sentence coaching description>"
     }
   ]
 }
-
-You MAY call compute_zones to look up the athlete's exact HR/power/pace zone ranges.
-You MAY call score_intensity_distribution on the sessions to verify intensity balance.
 """
 
-_HUMAN_TEMPLATE = """You are writing session descriptions for week {week_index} of the {phase_name} phase.
-Phase focus: {phase_focus}
-
-Athlete: {goal} | Experience: {experience}
-Strongest discipline: {strongest_discipline} | Weakest: {weakest_discipline}
-
-Zone reference:
-{zones_summary}
-
-Sessions to describe (DO NOT change any field except description):
-{sessions_json}
-
-Return JSON: {{"week_index": {week_index}, "phase_name": "{phase_name}", "sessions": [...each session with description filled in...]}}"""
-
-
-# ---------------------------------------------------------------------------
-# State definition
-# ---------------------------------------------------------------------------
-
-class WorkoutBuilderState(TypedDict):
-    """LangGraph state for the Workout Builder graph."""
-
-    # Append reducer — messages accumulate across nodes
-    messages: Annotated[list, operator.add]
-
-    # Replace semantics — current pending batch of tool calls
-    tool_calls: list
-
-    # Replace semantics — the input week skeleton
-    week_skeleton: dict
-
-    # Replace semantics — athlete zones
-    zones: dict
-
-    # Replace semantics — current phase name
-    phase_name: str
-
-    # Replace semantics — current phase focus
-    phase_focus: str
-
-    # Replace semantics — athlete profile dict
-    athlete_profile: dict
-
-    # Replace semantics — populated by parse_result, None until then
-    result: WeekWithDescriptions | None
-
-    # Replace semantics — tracks call_llm invocations to prevent infinite loops
-    call_count: int
-
-
-# ---------------------------------------------------------------------------
-# Helper functions
-# ---------------------------------------------------------------------------
 
 def _zones_summary(zones: dict) -> str:
-    """Build a compact zone reference string for the LLM prompt."""
     lines = []
-
-    hr_zones = zones.get("hr_zones", {})
-    if hr_zones:
-        lines.append("HR Zones:")
-        for zname, zdata in hr_zones.items():
-            label = zdata.get("label", "")
-            zmin = zdata.get("min", "—")
-            zmax = zdata.get("max", "—")
-            lines.append(f"  {zname} {label}: {zmin}–{zmax} bpm")
-
-    power_zones = zones.get("power_zones", {})
-    if power_zones:
-        lines.append("Power Zones:")
-        for zname, zdata in power_zones.items():
-            label = zdata.get("label", "")
-            zmin = zdata.get("min", "—")
-            zmax = zdata.get("max", "—")
-            lines.append(f"  {zname} {label}: {zmin}–{zmax} W")
-
-    pace_zones = zones.get("pace_zones", {})
-    if pace_zones:
-        lines.append("Pace Zones (per km):")
-        for zname, zdata in pace_zones.items():
-            label = zdata.get("label", "")
-            slow = zdata.get("min_pace", "—")
-            fast = zdata.get("max_pace", "—")
-            lines.append(f"  {zname} {label}: {slow}–{fast} /km")
-
-    return "\n".join(lines) if lines else "No zone data provided."
-
-
-def _parse_week(content: str | dict, week_skeleton: dict) -> WeekWithDescriptions:
-    """
-    Parse and validate the LLM's JSON output into a WeekWithDescriptions.
-
-    The skeleton is ground truth for all structural fields. If the LLM changed
-    any of id / week / day / sport / duration_minutes / zone / zone_label,
-    those values are silently overwritten with the skeleton values.
-
-    If a session's description is missing or empty, a sensible default is used.
-    """
-    if isinstance(content, dict):
-        data = content
-    else:
-        data = json.loads(content)
-
-    # Build a lookup from the skeleton sessions keyed by id
-    skeleton_sessions: dict[str, dict] = {}
-    for s in week_skeleton.get("sessions", []):
-        skeleton_sessions[s["id"]] = s
-
-    week_index = week_skeleton.get("week_index", data.get("week_index", 1))
-    phase_name = data.get("phase_name", "")
-
-    merged_sessions = []
-    llm_sessions = data.get("sessions", [])
-
-    # Match LLM sessions to skeleton sessions by id, then enforce skeleton values
-    for llm_session in llm_sessions:
-        session_id = llm_session.get("id", "")
-        skeleton = skeleton_sessions.get(session_id, {})
-
-        if not skeleton:
-            # LLM returned an unknown session id — skip it; will be backfilled below
+    for key, label, unit in [
+        ("hr_zones", "HR", "bpm"),
+        ("power_zones", "Power", "W"),
+        ("pace_zones", "Pace", "/km"),
+    ]:
+        z = zones.get(key) or {}
+        if not z:
             continue
-
-        zone = skeleton.get("zone", llm_session.get("zone", 1))
-        sport = skeleton.get("sport", llm_session.get("sport", "swim"))
-        duration = skeleton.get("duration_minutes", llm_session.get("duration_minutes", 30))
-        zone_label = skeleton.get(
-            "zone_label",
-            llm_session.get("zone_label", _ZONE_LABELS.get(zone, "Aerobic")),
-        )
-
-        description = llm_session.get("description", "").strip()
-        if not description:
-            description = (
-                f"Zone {zone} {sport} session. "
-                f"{duration} minutes at {zone_label} effort."
-            )
-
-        merged_sessions.append({
-            "id": skeleton.get("id", session_id),
-            "week": skeleton.get("week", llm_session.get("week", week_index)),
-            "day": skeleton.get("day", llm_session.get("day", "Monday")),
-            "sport": sport,
-            "duration_minutes": duration,
-            "zone": zone,
-            "zone_label": zone_label,
-            "description": description,
-        })
-
-    # Backfill any skeleton sessions the LLM missed entirely
-    merged_ids = {s["id"] for s in merged_sessions}
-    for s_id, skeleton in skeleton_sessions.items():
-        if s_id not in merged_ids:
-            zone = skeleton.get("zone", 2)
-            sport = skeleton.get("sport", "swim")
-            duration = skeleton.get("duration_minutes", 30)
-            zone_label = skeleton.get("zone_label", _ZONE_LABELS.get(zone, "Aerobic"))
-            merged_sessions.append({
-                "id": s_id,
-                "week": skeleton.get("week", week_index),
-                "day": skeleton.get("day", "Monday"),
-                "sport": sport,
-                "duration_minutes": duration,
-                "zone": zone,
-                "zone_label": zone_label,
-                "description": (
-                    f"Zone {zone} {sport} session. "
-                    f"{duration} minutes at {zone_label} effort."
-                ),
-            })
-
-    return WeekWithDescriptions(
-        week_index=week_index,
-        phase_name=phase_name,
-        sessions=[SessionWithDescription(**s) for s in merged_sessions],
-    )
+        lines.append(f"{label} zones:")
+        for zname, zdata in z.items():
+            if "min_pace" in zdata:
+                lo, hi = zdata.get("min_pace"), zdata.get("max_pace")
+            else:
+                lo, hi = zdata.get("min"), zdata.get("max")
+            lines.append(f"  {zname} {zdata.get('label','')}: {lo}–{hi} {unit}")
+    return "\n".join(lines) if lines else "No zone data."
 
 
-# ---------------------------------------------------------------------------
-# LLM instance
-# ---------------------------------------------------------------------------
-
-def _make_llm() -> ChatOllama:
-    return ChatOllama(
-        model=OLLAMA_MODEL,
-        base_url=OLLAMA_HOST,
-        temperature=0,
-        format="json",
-    )
-
-
-# ---------------------------------------------------------------------------
-# Graph nodes
-# ---------------------------------------------------------------------------
-
-def _call_llm(state: WorkoutBuilderState) -> dict:
-    """
-    Build the full message list and invoke the LLM with both tools bound.
-    Returns updated messages, extracted tool_calls, and incremented call_count.
-    """
-    llm = _make_llm()
-    llm_with_tools = llm.bind_tools([compute_zones, score_intensity_distribution])
-
-    system_msg = SystemMessage(content=_SYSTEM)
-    messages = [system_msg] + list(state["messages"])
-
-    response: AIMessage = llm_with_tools.invoke(messages)
-
-    tool_calls = (
-        response.tool_calls
-        if hasattr(response, "tool_calls") and response.tool_calls
-        else []
-    )
-
-    return {
-        "messages": [response],
-        "tool_calls": tool_calls,
-        "call_count": state.get("call_count", 0) + 1,
-    }
+def _feedback_line(athlete_profile: dict) -> str:
+    fb = athlete_profile.get("last_week_feedback")
+    if not fb:
+        return ""
+    parts = []
+    if (rpe := fb.get("rpe")) is not None:
+        parts.append(f"RPE {rpe}/10")
+    if (w := (fb.get("went_well") or "").strip()):
+        parts.append(f"went well: {w}")
+    if (d := (fb.get("didnt_go_well") or "").strip()):
+        parts.append(f"didn't go well: {d}")
+    if (n := (fb.get("notes") or "").strip()):
+        parts.append(f"notes: {n}")
+    return "Last week feedback: " + "; ".join(parts) + "." if parts else ""
 
 
-def _run_tool(state: WorkoutBuilderState) -> dict:
-    """
-    Execute the first pending tool call — handles both compute_zones and
-    score_intensity_distribution. Pops it from tool_calls and appends a
-    ToolMessage so the LLM sees the result on the next call_llm invocation.
-    """
-    pending = list(state["tool_calls"])
-    tool_call = pending[0]
-    remaining = pending[1:]
-
-    name = tool_call["name"]
-    args = tool_call["args"]
-
-    if name == "compute_zones":
-        tool_result = compute_zones.invoke(args)
-    elif name == "score_intensity_distribution":
-        tool_result = score_intensity_distribution.invoke(args)
-    else:
-        # Unknown tool — return an error message so the LLM can recover
-        tool_result = {"error": f"Unknown tool '{name}'."}
-
-    tool_message = ToolMessage(
-        content=json.dumps(tool_result),
-        name=name,
-        tool_call_id=tool_call["id"],
-    )
-
-    return {
-        "messages": [tool_message],
-        "tool_calls": remaining,
-    }
-
-
-def _parse_result(state: WorkoutBuilderState) -> dict:
-    """
-    Extract the JSON week from the last AIMessage and validate it into a
-    WeekWithDescriptions. Skeleton values override any LLM deviations.
-    """
-    content = None
-    for msg in reversed(state["messages"]):
-        if isinstance(msg, AIMessage) and msg.content:
-            content = msg.content
-            break
-
-    if content is None:
-        raise ValueError("Workout Builder: no AIMessage content found to parse.")
-
-    try:
-        result = _parse_week(content, state["week_skeleton"])
-    except Exception as exc:
-        raise ValueError(
-            f"Workout Builder returned unparseable output.\n"
-            f"Raw content: {content!r}\n"
-            f"Error: {exc}"
-        ) from exc
-
-    return {"result": result}
-
-
-# ---------------------------------------------------------------------------
-# Routing function
-# ---------------------------------------------------------------------------
-
-def _routing_function(state: WorkoutBuilderState) -> str:
-    """
-    Decide which node to visit after call_llm:
-    - If call_count exceeded the safety limit, go straight to parse_result.
-    - If there are pending tool calls for a known tool, run them.
-    - Otherwise, parse the LLM's final response.
-    """
-    if state.get("call_count", 0) > _MAX_TOOL_LOOPS:
-        return "parse_result"
-
-    pending = state.get("tool_calls", [])
-    if pending and pending[0].get("name") in ("compute_zones", "score_intensity_distribution"):
-        return "run_tool"
-
-    return "parse_result"
-
-
-# ---------------------------------------------------------------------------
-# Graph compilation
-# ---------------------------------------------------------------------------
-
-def _build_graph() -> StateGraph:
-    workflow = StateGraph(WorkoutBuilderState)
-
-    workflow.add_node("call_llm", _call_llm)
-    workflow.add_node("run_tool", _run_tool)
-    workflow.add_node("parse_result", _parse_result)
-
-    workflow.add_edge(START, "call_llm")
-    workflow.add_conditional_edges(
-        "call_llm",
-        _routing_function,
-        ["run_tool", "parse_result"],
-    )
-    workflow.add_edge("run_tool", "call_llm")
-    workflow.add_edge("parse_result", END)
-
-    return workflow.compile()
-
-
-# Compile once at module import time
-_graph = _build_graph()
-
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
-
-async def run_workout_builder(
-    week_skeleton: dict,
+def _build_prompt(
+    *,
+    week_index: int,
     phase_name: str,
     phase_focus: str,
-    zones: dict,
+    intensity_target: str,
+    week_within_phase: int,
+    weeks_until_race: int,
     athlete_profile: dict,
-) -> WeekWithDescriptions:
-    """
-    Run the Workout Builder StateGraph for a single week skeleton.
+    zones: dict,
+    target_hours: float,
+    previous_week_minutes: float,
+    prior_issues: list[str],
+) -> str:
+    hours_min = float(athlete_profile.get("hours_min") or athlete_profile.get("weekly_hours") or target_hours)
+    hours_max = float(athlete_profile.get("hours_max") or athlete_profile.get("weekly_hours") or target_hours)
+    days_available = int(athlete_profile.get("days_available", 5))
+    ftp = int(athlete_profile.get("ftp") or 0)
+    lthr = int(athlete_profile.get("lthr") or 0)
 
-    Uses a LangGraph StateGraph with:
-    - ChatOllama (format="json", temperature=0) for deterministic, structured output
-    - compute_zones tool for zone range lookups
-    - score_intensity_distribution tool for intensity balance checks
-    - _parse_week() to validate the final AIMessage into a WeekWithDescriptions
+    retry_block = ""
+    if prior_issues:
+        bullets = "\n".join(f"  - {msg}" for msg in prior_issues)
+        retry_block = (
+            "\nYOUR PREVIOUS ATTEMPT FAILED VALIDATION. Fix these specific issues:\n"
+            f"{bullets}\n"
+        )
 
-    The skeleton is ground truth — all structural fields (id, week, day, sport,
-    duration_minutes, zone, zone_label) are enforced by _parse_week regardless
-    of what the LLM returns.
+    feedback = _feedback_line(athlete_profile)
+    fb_block = f"\n{feedback}\n" if feedback else ""
 
-    Args:
-        week_skeleton: Week skeleton from the rule engine. Must contain:
-                       week_index (int), sessions (list of session dicts with
-                       id, week, day, sport, duration_minutes, zone, zone_label).
-        phase_name:    Name of the current training phase (e.g. "Base").
-        phase_focus:   1-2 sentence description of the phase's emphasis.
-        zones:         Athlete's computed training zones (from compute_zones).
-        athlete_profile: Dict with goal, experience, strongest_discipline,
-                         weakest_discipline.
-
-    Returns:
-        WeekWithDescriptions — validated Pydantic model with all sessions described.
-
-    Raises:
-        ValueError: if the agent output cannot be parsed into a valid WeekWithDescriptions.
-    """
-    week_index = week_skeleton.get("week_index", 1)
-    sessions = week_skeleton.get("sessions", [])
-
-    zones_summary = _zones_summary(zones)
-    sessions_json = json.dumps(sessions, indent=2)
-
-    human_text = _HUMAN_TEMPLATE.format(
-        week_index=week_index,
-        phase_name=phase_name,
-        phase_focus=phase_focus,
-        goal=athlete_profile.get("goal", "recreational"),
-        experience=athlete_profile.get("experience", "recreational"),
-        strongest_discipline=athlete_profile.get("strongest_discipline", "bike"),
-        weakest_discipline=athlete_profile.get("weakest_discipline", "swim"),
-        zones_summary=zones_summary,
-        sessions_json=sessions_json,
+    return (
+        f"Build week {week_index} for this athlete.\n\n"
+        f"Race is in {weeks_until_race} weeks.\n"
+        f"Phase: {phase_name} (week {week_within_phase} of this phase)\n"
+        f"Phase focus: {phase_focus}\n"
+        f"Intensity target: {intensity_target}\n\n"
+        f"Weekly hours budget: {hours_min:.1f}–{hours_max:.1f} hours\n"
+        f"Target this week: {target_hours:.1f} hours\n"
+        f"Days available: {days_available}\n"
+        f"FTP: {ftp or 'unknown'} W | LTHR: {lthr or 'unknown'} bpm\n"
+        f"Previous week actual minutes: {previous_week_minutes:.0f}\n"
+        f"{fb_block}"
+        f"Zones:\n{_zones_summary(zones)}\n"
+        f"{retry_block}\n"
+        f"Return JSON with week_index={week_index}, phase_name=\"{phase_name}\", and sessions array."
     )
 
-    initial_state: WorkoutBuilderState = {
-        "messages": [HumanMessage(content=human_text)],
-        "tool_calls": [],
-        "week_skeleton": week_skeleton,
-        "zones": zones,
-        "phase_name": phase_name,
-        "phase_focus": phase_focus,
-        "athlete_profile": athlete_profile,
-        "result": None,
-        "call_count": 0,
+
+def _coerce_session(raw: dict, week_index: int) -> dict:
+    """Fill derived fields the LLM might have skipped or botched."""
+    zone = int(raw.get("zone", 2))
+    zone = max(1, min(5, zone))
+    sport = (raw.get("sport") or "swim").lower()
+    day = raw.get("day", "Monday")
+    duration = int(raw.get("duration_minutes", 30))
+    session_type = raw.get("session_type") or "endurance"
+    zone_label = raw.get("zone_label") or _ZONE_LABELS[zone]
+
+    sid = raw.get("id") or f"w{week_index}_{day.lower()}_{sport}"
+    if session_type in ("brick_bike", "brick_run") and "brick" not in sid:
+        sid = f"w{week_index}_{day.lower()}_{session_type}"
+
+    description = (raw.get("description") or "").strip()
+    if not description:
+        description = f"Zone {zone} {sport} session. {duration} minutes at {zone_label} effort."
+
+    return {
+        "id": sid,
+        "week": week_index,
+        "day": day,
+        "sport": sport,
+        "duration_minutes": duration,
+        "zone": zone,
+        "zone_label": zone_label,
+        "session_type": session_type,
+        "description": description,
+        "intervals": [],
+        "distance_yards": raw.get("distance_yards"),
     }
 
-    result_state = await _graph.ainvoke(initial_state)
 
-    week = result_state.get("result")
-    if week is None:
-        raise ValueError("Workout Builder graph completed but result is None.")
+async def _propose_once(prompt: str) -> dict:
+    llm = ChatAnthropic(
+        model_name=ANTHROPIC_MODEL,
+        temperature=0.2,
+        max_tokens=4096,
+        timeout=60,
+        stop=None,
+    )
+    response = await llm.ainvoke(
+        [SystemMessage(content=_SYSTEM), HumanMessage(content=prompt)]
+    )
+    content = response.content
+    if isinstance(content, list):
+        content = "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in content
+        )
+    return json.loads(_extract_json(content))
 
-    return week
+
+def _extract_json(text: str) -> str:
+    """Pull a JSON object out of an LLM response that may include prose/fences."""
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fence:
+        return fence.group(1)
+    first = text.find("{")
+    last = text.rfind("}")
+    if first != -1 and last != -1 and last > first:
+        return text[first : last + 1]
+    return text.strip()
+
+
+async def run_workout_builder(
+    *,
+    week_index: int,
+    phase_name: str,
+    phase_focus: str,
+    intensity_target: str,
+    week_within_phase: int,
+    weeks_until_race: int,
+    athlete_profile: dict,
+    zones: dict,
+    target_hours: float,
+    previous_week_minutes: float = 0.0,
+    max_retries: int = 2,
+) -> WeekWithDescriptions:
+    """
+    Propose a full week via LLM, validate, retry with issues up to max_retries times.
+
+    Returns the final WeekWithDescriptions. If the last attempt still violates
+    rules, it's returned anyway (logged as a warning) so the user isn't blocked.
+    """
+    hours_min = float(athlete_profile.get("hours_min") or athlete_profile.get("weekly_hours") or target_hours)
+    hours_max = float(athlete_profile.get("hours_max") or athlete_profile.get("weekly_hours") or target_hours)
+    days_available = int(athlete_profile.get("days_available", 5))
+
+    issues: list[str] = []
+    last: WeekWithDescriptions | None = None
+
+    for attempt in range(max_retries + 1):
+        prompt = _build_prompt(
+            week_index=week_index,
+            phase_name=phase_name,
+            phase_focus=phase_focus,
+            intensity_target=intensity_target,
+            week_within_phase=week_within_phase,
+            weeks_until_race=weeks_until_race,
+            athlete_profile=athlete_profile,
+            zones=zones,
+            target_hours=target_hours,
+            previous_week_minutes=previous_week_minutes,
+            prior_issues=issues,
+        )
+
+        try:
+            data = await _propose_once(prompt)
+        except Exception as exc:
+            logger.error("workout_builder: LLM call failed (%s)", exc)
+            if last is not None:
+                return last
+            raise
+
+        raw_sessions = data.get("sessions", [])
+        sessions = [_coerce_session(s, week_index) for s in raw_sessions]
+
+        validation = validate_week_structure_logic({
+            "sessions": sessions,
+            "target_hours": target_hours,
+            "hours_min": hours_min,
+            "hours_max": hours_max,
+            "days_available": days_available,
+            "previous_week_minutes": previous_week_minutes,
+        })
+
+        last = WeekWithDescriptions(
+            week_index=week_index,
+            phase_name=phase_name,
+            sessions=[SessionWithDescription(**s) for s in sessions],
+        )
+
+        if validation["valid"]:
+            logger.info("workout_builder: week %d valid on attempt %d", week_index, attempt + 1)
+            return last
+
+        issues = validation["issues"]
+        logger.warning(
+            "workout_builder: week %d attempt %d invalid — %s",
+            week_index,
+            attempt + 1,
+            "; ".join(issues),
+        )
+
+    logger.warning(
+        "workout_builder: week %d exhausted retries; returning last proposal with unresolved issues: %s",
+        week_index,
+        "; ".join(issues),
+    )
+    return last  # type: ignore[return-value]

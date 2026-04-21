@@ -11,6 +11,7 @@ class Session(BaseModel):
     duration_minutes: int
     zone: int
     zone_label: str
+    session_type: str = "endurance"
     description: str
     distance_yards: Optional[int] = None
     intervals: list[dict] = []
@@ -51,3 +52,25 @@ class PlanJobResponse(BaseModel):
     status: str  # "pending" | "done" | "error"
     plan: Optional[PlanResponse] = None
     error: Optional[str] = None
+
+
+class NextWeekRequest(BaseModel):
+    user_id: str
+
+
+class WeekFeedbackRequest(BaseModel):
+    user_id: str
+    week_index: int
+    rpe: Optional[int] = None  # 1-10 scale
+    went_well: str = ""
+    didnt_go_well: str = ""
+    notes: str = ""
+
+
+class WeekFeedbackResponse(BaseModel):
+    week_index: int
+    rpe: Optional[int] = None
+    went_well: str = ""
+    didnt_go_well: str = ""
+    notes: str = ""
+    created_at: Optional[datetime] = None

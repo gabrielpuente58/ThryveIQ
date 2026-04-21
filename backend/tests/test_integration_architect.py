@@ -8,8 +8,8 @@ Calls the endpoint with a hardcoded first-timer athlete profile and validates:
   - weekly_structure_template only uses allowed sports
   - intensity_distribution_target is present on each phase
 
-This test calls the REAL Ollama LLM (no mocks). It will be skipped automatically
-if the Ollama server is unreachable, so CI stays green.
+This test calls the REAL Anthropic API (no mocks). It will be skipped automatically
+if ANTHROPIC_API_KEY is not set, so CI stays green.
 
 Run manually:
     pytest tests/test_integration_architect.py -v -s
@@ -17,9 +17,7 @@ Run manually:
 import json
 import os
 
-import httpx
 import pytest
-import pytest_asyncio
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock, patch
 
@@ -52,14 +50,9 @@ VALID_SPORTS = {"swim", "bike", "run"}
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _is_ollama_reachable() -> bool:
-    """Check if the Ollama server is reachable before running live tests."""
-    ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-    try:
-        resp = httpx.get(f"{ollama_host}/api/tags", timeout=5.0)
-        return resp.status_code == 200
-    except Exception:
-        return False
+def _has_anthropic_key() -> bool:
+    """Check if ANTHROPIC_API_KEY is set before running live tests."""
+    return bool(os.getenv("ANTHROPIC_API_KEY"))
 
 
 def _validate_blueprint(blueprint: PlanBlueprint, weeks_until_race: int = 10) -> None:  # noqa: ARG001
@@ -101,17 +94,17 @@ def _validate_blueprint(blueprint: PlanBlueprint, weeks_until_race: int = 10) ->
 
 
 # ---------------------------------------------------------------------------
-# Live integration test (skipped if Ollama is unreachable)
+# Live integration test (skipped if ANTHROPIC_API_KEY is missing)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(
-    not _is_ollama_reachable(),
-    reason="Ollama server not reachable — skipping live integration test",
+    not _has_anthropic_key(),
+    reason="ANTHROPIC_API_KEY not set — skipping live integration test",
 )
 @pytest.mark.asyncio
 async def test_plan_architect_live():
     """
-    Calls the real Ollama LLM and validates the full response.
+    Calls the real Anthropic API and validates the full response.
     Logs the blueprint to stdout so you can inspect it manually.
     """
     blueprint = await run_plan_architect(FIRST_TIMER_PROFILE)
@@ -144,14 +137,14 @@ async def test_plan_architect_live():
 
 
 @pytest.mark.skipif(
-    not _is_ollama_reachable(),
-    reason="Ollama server not reachable — skipping live integration test",
+    not _has_anthropic_key(),
+    reason="ANTHROPIC_API_KEY not set — skipping live integration test",
 )
 @pytest.mark.asyncio
 async def test_plan_architect_live_via_endpoint():
     """
     Hits POST /plans/architect via the FastAPI test client with a real Supabase mock,
-    but a real Ollama call for the agent.
+    but a real Anthropic API call for the agent.
     """
     mock_supabase_result = MagicMock()
     mock_supabase_result.data = FIRST_TIMER_PROFILE
@@ -187,7 +180,7 @@ async def test_plan_architect_live_via_endpoint():
 async def test_plan_architect_offline_structure():
     """
     Validates the full request → Supabase → agent → parse → response chain
-    using a mock LLM response — does NOT require Ollama.
+    using a mock LLM response — does NOT require the Anthropic API.
     """
     from unittest.mock import AsyncMock
     from models.blueprint import PhaseBlueprint

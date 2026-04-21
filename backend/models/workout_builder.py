@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 
 class SessionWithDescription(BaseModel):
-    """A single training session with a coaching description filled in by the LLM."""
+    """A single training session — now fully LLM-proposed including structure."""
 
     id: str = Field(description="Session identifier, e.g. 'w1_d1_swim'.")
     week: int = Field(description="Week number (1-indexed).")
@@ -19,6 +19,10 @@ class SessionWithDescription(BaseModel):
     duration_minutes: int = Field(description="Session length in minutes.")
     zone: int = Field(description="Training zone (1-5).", ge=1, le=5)
     zone_label: str = Field(description="Human-readable zone label.")
+    session_type: str = Field(
+        default="endurance",
+        description="Workout type: long | endurance | tempo | threshold | intervals | recovery | brick_bike | brick_run | drill | race_pace",
+    )
     description: str = Field(description="2-3 sentence coaching description.")
     distance_yards: Optional[int] = None
     intervals: list[dict] = []

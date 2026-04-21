@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { Card } from "./Card";
+import { EffortSkyline } from "./EffortSkyline";
 import { ThemeColors, SPACING, FONT_SIZES, BORDER_RADIUS } from "../constants/theme";
 import { useTheme } from "../context/ThemeContext";
 import { setPendingWorkoutChat } from "../lib/workoutChatContext";
@@ -17,6 +18,18 @@ const SPORT_LABELS: Record<string, string> = {
   swim: "Swim",
   bike: "Bike",
   run: "Run",
+};
+
+const SESSION_TYPE_LABELS: Record<string, string> = {
+  long: "LONG",
+  tempo: "TEMPO",
+  threshold: "THRESHOLD",
+  intervals: "INTERVALS",
+  recovery: "RECOVERY",
+  brick_bike: "BRICK · BIKE",
+  brick_run: "BRICK · RUN",
+  drill: "DRILL",
+  race_pace: "RACE PACE",
 };
 
 export interface Interval {
@@ -37,6 +50,7 @@ export interface SessionCardProps {
   zone: number;
   zone_label: string;
   description: string;
+  session_type?: string;
   distance_yards?: number | null;
   intervals?: Interval[];
   day?: string;
@@ -75,7 +89,7 @@ function buildWorkoutContext(props: SessionCardProps): string {
 export const SessionCard: React.FC<SessionCardProps> = (props) => {
   const {
     sport, duration_minutes, zone, zone_label, description,
-    distance_yards, intervals = [], onPress,
+    session_type, distance_yards, intervals = [], onPress,
   } = props;
 
   const { colors } = useTheme();
@@ -83,6 +97,7 @@ export const SessionCard: React.FC<SessionCardProps> = (props) => {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const sportColor = SPORT_COLORS[sport] ?? colors.primary;
+  const sessionTypeLabel = session_type ? SESSION_TYPE_LABELS[session_type] : undefined;
 
   const volumeLabel = sport === "swim" && distance_yards
     ? `${distance_yards}yd`
@@ -110,8 +125,21 @@ export const SessionCard: React.FC<SessionCardProps> = (props) => {
         </View>
       </View>
 
+      {sessionTypeLabel && (
+        <View style={[styles.sessionTypeBadge, { borderColor: sportColor }]}>
+          <Text style={[styles.sessionTypeText, { color: sportColor }]}>
+            {sessionTypeLabel}
+          </Text>
+        </View>
+      )}
+
       {/* Description */}
       <Text style={styles.description}>{description}</Text>
+
+      {/* Effort skyline — bike/run only; swims read better as sets */}
+      {sport !== "swim" && intervals.length > 0 && (
+        <EffortSkyline intervals={intervals} sport={sport} />
+      )}
 
       {/* Interval toggle + Ask Coach row */}
       <View style={styles.actionsRow}>
@@ -206,6 +234,18 @@ const makeStyles = (colors: ThemeColors) =>
       borderRadius: BORDER_RADIUS.sm,
     },
     zoneText: { fontSize: FONT_SIZES.xs, color: colors.lightGray },
+    sessionTypeBadge: {
+      alignSelf: "flex-start",
+      borderWidth: 1,
+      paddingVertical: 2,
+      paddingHorizontal: SPACING.sm,
+      borderRadius: BORDER_RADIUS.sm,
+    },
+    sessionTypeText: {
+      fontSize: 10,
+      fontWeight: "800",
+      letterSpacing: 1,
+    },
     description: {
       fontSize: FONT_SIZES.sm,
       color: colors.lightGray,

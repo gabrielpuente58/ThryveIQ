@@ -1,7 +1,7 @@
 """
 Unit tests for the deterministic pipeline tools and week generation pipeline.
 
-All tests call pure math functions directly — no LangChain, no Ollama required.
+All tests call pure math functions directly — no LangChain, no LLM required.
 """
 from __future__ import annotations
 

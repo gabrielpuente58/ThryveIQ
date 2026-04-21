@@ -21,15 +21,21 @@ _SPORT_WEIGHT = {"swim": 0.75, "bike": 1.25, "run": 1.0}
 _DAYS = DAYS_OF_WEEK  # ["Monday", "Tuesday", ..., "Sunday"]
 
 
-def _build_session_list(weekly_structure_template: dict) -> list[str]:
+def _build_session_list(weekly_structure_template: dict, week_index: int = 1) -> list[str]:
     """
     Expand the template dict into an ordered list of sport strings.
 
-    E.g. {"swim": 2, "bike": 3, "run": 3} → ["swim","swim","bike","bike","bike","run","run","run"]
-    Order: bike first (longest), then run, then swim — interleaved for variety.
+    Rotates the starting sport by week_index so consecutive weeks don't produce
+    identical day-of-week patterns (e.g. Monday isn't always swim).
     """
+    rotations = [
+        ("bike", "run", "swim"),
+        ("run", "swim", "bike"),
+        ("swim", "bike", "run"),
+    ]
+    order = rotations[(week_index - 1) % 3]
     sports_expanded: list[str] = []
-    for sport in ("bike", "run", "swim"):
+    for sport in order:
         count = weekly_structure_template.get(sport, 0)
         sports_expanded.extend([sport] * count)
     return sports_expanded
@@ -226,8 +232,8 @@ def allocate_week_structure_logic(
     if "taper" in phase_name.lower() or "recovery" in phase_name.lower():
         is_recovery_week = True
 
-    # Build full sport list from template
-    all_sports = _build_session_list(weekly_structure_template)
+    # Build full sport list from template — rotated per week so days vary.
+    all_sports = _build_session_list(weekly_structure_template, week_index=week_index)
     total_from_template = len(all_sports)
 
     if total_from_template == 0:
@@ -243,7 +249,7 @@ def allocate_week_structure_logic(
         scaled_template: dict[str, int] = {}
         for sport, count in weekly_structure_template.items():
             scaled_template[sport] = max(1, round(count * scale))
-        all_sports = _build_session_list(scaled_template)
+        all_sports = _build_session_list(scaled_template, week_index=week_index)
 
     # Interleave sports
     interleaved = _interleave_sports(all_sports)

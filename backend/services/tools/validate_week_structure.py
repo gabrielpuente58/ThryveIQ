@@ -1,9 +1,8 @@
 """
-validate_week_structure — LangChain tool for training guardrail checks.
+validate_week_structure — deterministic guardrail checks for an LLM-proposed week.
 
-Validates a week skeleton against hard training constraints defined in CLAUDE.md.
-Returns a structured result indicating whether the week is valid and what issues
-were found.
+Called inside the Workout Builder retry loop. Returns human-readable issues the
+LLM can act on in the next attempt.
 """
 from langchain_core.tools import tool
 
@@ -14,45 +13,85 @@ _DAYS_ORDER = {day: i for i, day in enumerate(DAYS_OF_WEEK)}
 
 def validate_week_structure_logic(week_skeleton: dict) -> dict:
     """
-    Pure validation logic — callable without LangChain.
+    Hard-rule validator. `week_skeleton` may include:
+      - sessions (required): list of dicts with day/sport/duration_minutes/zone
+      - target_hours (optional): planner's volume target
+      - hours_min / hours_max (optional): athlete's weekly budget range
+      - days_available (optional): max distinct training days
+      - previous_week_minutes (optional): for ramp-rate check
+      - allow_skipped_days (bool): when True, require exactly days_available days
 
-    Guardrail checks (from CLAUDE.md):
-    1. Max 2 hard sessions per week (zone >= 4).
-    2. No two hard run sessions on back-to-back days.
-    3. Long bike (>= 90 min) duration >= long run duration, if both exist.
-    4. Total volume within 15% of target_hours * 60 (only if target_hours present).
-    5. Minimum 1 session per sport that appears in the skeleton.
-    6. Ramp rate: if previous_week_minutes provided, increase <= 10%.
-
-    Args:
-        week_skeleton: Dict with at minimum a `sessions` key containing a list
-                       of session dicts (id, week, day, sport, duration_minutes, zone).
-                       Optional top-level keys:
-                         - target_hours (float): expected total volume
-                         - previous_week_minutes (float): prior week's total volume
-
-    Returns:
-        { "valid": bool, "issues": list[str] }
+    Returns {"valid": bool, "issues": list[str]}.
     """
     issues: list[str] = []
     sessions: list[dict] = week_skeleton.get("sessions", [])
 
     if not sessions:
-        return {"valid": False, "issues": ["Week skeleton has no sessions."]}
+        return {"valid": False, "issues": ["Week has no sessions."]}
 
-    # -------------------------------------------------------------------------
-    # Check 1: Max 2 hard sessions (zone >= 4) per week
-    # -------------------------------------------------------------------------
-    hard_sessions = [s for s in sessions if int(s.get("zone", 1)) >= 4]
-    if len(hard_sessions) > 2:
+    total_minutes = sum(int(s.get("duration_minutes", 0)) for s in sessions)
+
+    # --- Days-available cap ---------------------------------------------------
+    days_available = week_skeleton.get("days_available")
+    used_days = {s.get("day") for s in sessions if s.get("day")}
+    if days_available is not None and len(used_days) > int(days_available):
         issues.append(
-            f"Too many hard sessions: {len(hard_sessions)} sessions at zone >= 4 "
-            f"(maximum is 2 per week)."
+            f"Uses {len(used_days)} training days but athlete only has {days_available} available. "
+            "Combine sessions into bricks or drop a day."
         )
 
-    # -------------------------------------------------------------------------
-    # Check 2: No two hard run sessions on back-to-back days
-    # -------------------------------------------------------------------------
+    # --- Max 2 sessions per day, second must be a brick run --------------------
+    by_day: dict[str, list[dict]] = {}
+    for s in sessions:
+        by_day.setdefault(s.get("day", ""), []).append(s)
+    for day, day_sessions in by_day.items():
+        if len(day_sessions) > 2:
+            issues.append(
+                f"{day} has {len(day_sessions)} sessions. Max 2 per day (bike→run brick only)."
+            )
+        elif len(day_sessions) == 2:
+            sports = [s.get("sport") for s in day_sessions]
+            types = [s.get("session_type", "") for s in day_sessions]
+            is_brick = sports == ["bike", "run"] or (
+                "brick_bike" in types and "brick_run" in types
+            )
+            if not is_brick:
+                issues.append(
+                    f"{day} has 2 sessions that are not a brick. Only bike→run (same day) is allowed. "
+                    f"Got sports={sports}."
+                )
+            else:
+                # Ensure bike appears before run in the list (so UI renders in order)
+                bike_first = day_sessions[0].get("sport") == "bike" or day_sessions[0].get(
+                    "session_type"
+                ) == "brick_bike"
+                if not bike_first:
+                    issues.append(
+                        f"{day} brick has run before bike. Bike must come first."
+                    )
+
+    # --- Weekly hours budget --------------------------------------------------
+    hours_min = week_skeleton.get("hours_min")
+    hours_max = week_skeleton.get("hours_max")
+    if hours_min is not None and total_minutes < float(hours_min) * 60 * 0.85:
+        issues.append(
+            f"Total volume {total_minutes} min is below minimum "
+            f"{float(hours_min) * 60:.0f} min (athlete's weekly minimum)."
+        )
+    if hours_max is not None and total_minutes > float(hours_max) * 60 * 1.05:
+        issues.append(
+            f"Total volume {total_minutes} min exceeds maximum "
+            f"{float(hours_max) * 60:.0f} min (athlete's weekly cap)."
+        )
+
+    # --- Max 2 hard sessions --------------------------------------------------
+    hard = [s for s in sessions if int(s.get("zone", 1)) >= 4]
+    if len(hard) > 2:
+        issues.append(
+            f"Too many hard sessions ({len(hard)} at zone >= 4). Max 2 per week."
+        )
+
+    # --- No back-to-back hard run days ---------------------------------------
     hard_run_days = sorted(
         {
             _DAYS_ORDER.get(s["day"], 99)
@@ -60,83 +99,33 @@ def validate_week_structure_logic(week_skeleton: dict) -> dict:
             if s.get("sport") == "run" and int(s.get("zone", 1)) >= 4
         }
     )
-    for idx in range(len(hard_run_days) - 1):
-        if hard_run_days[idx + 1] - hard_run_days[idx] == 1:
-            day_a = DAYS_OF_WEEK[hard_run_days[idx]]
-            day_b = DAYS_OF_WEEK[hard_run_days[idx + 1]]
-            issues.append(
-                f"Back-to-back hard run sessions on {day_a} and {day_b}. "
-                f"Hard runs must have at least one rest day between them."
-            )
+    for i in range(len(hard_run_days) - 1):
+        if hard_run_days[i + 1] - hard_run_days[i] == 1:
+            a = DAYS_OF_WEEK[hard_run_days[i]]
+            b = DAYS_OF_WEEK[hard_run_days[i + 1]]
+            issues.append(f"Back-to-back hard run days ({a}, {b}). Separate by a rest day.")
 
-    # -------------------------------------------------------------------------
-    # Check 3: Long bike duration >= long run duration (if both exist)
-    # -------------------------------------------------------------------------
-    bike_sessions = [s for s in sessions if s.get("sport") == "bike"]
-    run_sessions = [s for s in sessions if s.get("sport") == "run"]
-
-    long_bikes = [s for s in bike_sessions if int(s.get("duration_minutes", 0)) >= 90]
-    long_runs = [s for s in run_sessions if int(s.get("duration_minutes", 0)) >= 60]
-
+    # --- Long bike ≥ long run -------------------------------------------------
+    long_bikes = [s for s in sessions if s.get("sport") == "bike" and int(s.get("duration_minutes", 0)) >= 75]
+    long_runs = [s for s in sessions if s.get("sport") == "run" and int(s.get("duration_minutes", 0)) >= 60]
     if long_bikes and long_runs:
-        max_bike_duration = max(int(s.get("duration_minutes", 0)) for s in long_bikes)
-        max_run_duration = max(int(s.get("duration_minutes", 0)) for s in long_runs)
-        if max_bike_duration < max_run_duration:
+        max_bike = max(int(s["duration_minutes"]) for s in long_bikes)
+        max_run = max(int(s["duration_minutes"]) for s in long_runs)
+        if max_bike < max_run:
             issues.append(
-                f"Long bike ({max_bike_duration} min) is shorter than long run "
-                f"({max_run_duration} min). Long bike should be >= long run duration."
+                f"Long run ({max_run} min) exceeds long bike ({max_bike} min). "
+                "Long bike must be ≥ long run duration."
             )
 
-    # -------------------------------------------------------------------------
-    # Check 4: Total volume within 15% of target_hours * 60 (if provided)
-    # -------------------------------------------------------------------------
-    target_hours = week_skeleton.get("target_hours")
-    if target_hours is not None:
-        target_minutes = float(target_hours) * 60
-        actual_minutes = sum(int(s.get("duration_minutes", 0)) for s in sessions)
-        lower = target_minutes * 0.85
-        upper = target_minutes * 1.15
-        if not (lower <= actual_minutes <= upper):
+    # --- Ramp rate ≤ 10% ------------------------------------------------------
+    previous = week_skeleton.get("previous_week_minutes")
+    if previous is not None and float(previous) > 0:
+        allowed = float(previous) * 1.10
+        if total_minutes > allowed:
+            pct = (total_minutes - float(previous)) / float(previous) * 100
             issues.append(
-                f"Total volume ({actual_minutes} min) is outside 15% of target "
-                f"({target_minutes:.0f} min). Acceptable range: {lower:.0f}–{upper:.0f} min."
-            )
-
-    # -------------------------------------------------------------------------
-    # Check 5: No sport appears in the skeleton with zero actual sessions.
-    # This guards against malformed skeletons where a sport key exists but all
-    # its session dicts have been stripped out (e.g. by a partial fix pass).
-    # We count by sport and flag any with duration_minutes == 0 for all entries.
-    sport_durations: dict[str, list[int]] = {}
-    for s in sessions:
-        sport = s.get("sport")
-        if sport:
-            sport_durations.setdefault(sport, []).append(int(s.get("duration_minutes", 0)))
-
-    for sport, durations in sport_durations.items():
-        if all(d == 0 for d in durations):
-            issues.append(
-                f"All sessions for sport '{sport}' have zero duration — "
-                "they will contribute no training load."
-            )
-
-    # -------------------------------------------------------------------------
-    # Check 6: Ramp rate <= 10% (if previous_week_minutes provided)
-    # -------------------------------------------------------------------------
-    previous_week_minutes = week_skeleton.get("previous_week_minutes")
-    if previous_week_minutes is not None and float(previous_week_minutes) > 0:
-        actual_minutes = sum(int(s.get("duration_minutes", 0)) for s in sessions)
-        max_allowed = float(previous_week_minutes) * 1.10
-        if actual_minutes > max_allowed:
-            increase_pct = (
-                (actual_minutes - float(previous_week_minutes))
-                / float(previous_week_minutes)
-                * 100
-            )
-            issues.append(
-                f"Ramp rate too high: {increase_pct:.1f}% increase over previous week "
-                f"({previous_week_minutes:.0f} min → {actual_minutes} min). "
-                f"Maximum allowed is 10%."
+                f"Volume jumped {pct:.1f}% over last week "
+                f"({previous:.0f} → {total_minutes} min). Max ramp is 10%."
             )
 
     return {"valid": len(issues) == 0, "issues": issues}
@@ -145,25 +134,17 @@ def validate_week_structure_logic(week_skeleton: dict) -> dict:
 @tool
 def validate_week_structure(week_skeleton: dict) -> dict:
     """
-    Validate a week skeleton against training guardrails.
+    Validate an LLM-proposed training week against hard guardrails.
 
-    Call this after allocate_week_structure to check the week conforms to
-    training science constraints before passing it to the Workout Builder.
+    Checks:
+    - Within days_available distinct days
+    - ≤ 2 sessions per day (brick = bike→run only)
+    - Total minutes within hours_min/hours_max budget
+    - Max 2 hard sessions (zone ≥ 4)
+    - No back-to-back hard run days
+    - Long bike ≥ long run duration
+    - Ramp rate ≤ 10% vs previous week
 
-    Checks performed:
-    - Max 2 hard sessions (zone >= 4) per week
-    - No back-to-back hard run sessions
-    - Long bike duration >= long run duration
-    - Total volume within 15% of target_hours (if target_hours present)
-    - At least 1 session per sport in the skeleton
-    - Ramp rate <= 10% (if previous_week_minutes present)
-
-    Args:
-        week_skeleton: Week skeleton dict with sessions array. Optionally includes
-                       target_hours (float) and previous_week_minutes (float).
-
-    Returns:
-        { "valid": bool, "issues": list[str] }
-        valid=True means all guardrails passed.
+    Returns {"valid": bool, "issues": list[str]}.
     """
     return validate_week_structure_logic(week_skeleton)

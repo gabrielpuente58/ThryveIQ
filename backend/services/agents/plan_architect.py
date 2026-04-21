@@ -23,12 +23,13 @@ from __future__ import annotations
 import json
 import operator
 import os
+import re
 from datetime import date
 from typing import Annotated, TypedDict
 
 from dotenv import load_dotenv
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_ollama import ChatOllama
 from langgraph.graph import END, START, StateGraph
 
 from models.blueprint import PlanBlueprint
@@ -36,8 +37,7 @@ from services.tools.compute_zones import compute_zones
 
 load_dotenv()
 
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL_ARCHITECT", "claude-haiku-4-5-20251001")
 
 _MAX_TOOL_LOOPS = 5
 
@@ -144,7 +144,7 @@ def _normalize_phase(phase: dict) -> dict:
     """
     Normalize a phase dict to match PhaseBlueprint field names.
 
-    Ollama models sometimes use abbreviated field names like 'name' instead of
+    Models sometimes use abbreviated field names like 'name' instead of
     'phase_name', or 'coaching_notes' instead of 'focus'. This function maps
     all known variants to the canonical field names.
     """
@@ -192,6 +192,18 @@ def _normalize_phase(phase: dict) -> dict:
     return out
 
 
+def _extract_json(text: str) -> str:
+    """Pull a JSON object out of an LLM response that may include prose/fences."""
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fence:
+        return fence.group(1)
+    first = text.find("{")
+    last = text.rfind("}")
+    if first != -1 and last != -1 and last > first:
+        return text[first : last + 1]
+    return text.strip()
+
+
 def _parse_blueprint(raw: str | dict) -> PlanBlueprint:
     """
     Parse the agent's output into a validated PlanBlueprint.
@@ -202,7 +214,7 @@ def _parse_blueprint(raw: str | dict) -> PlanBlueprint:
     if isinstance(raw, dict):
         data = raw
     else:
-        data = json.loads(raw)
+        data = json.loads(_extract_json(raw))
 
     # Handle extra nesting some models add
     if "phases" not in data and "properties" in data:
@@ -248,12 +260,13 @@ def _parse_blueprint(raw: str | dict) -> PlanBlueprint:
 # LLM instance (module-level so the graph reuses it)
 # ---------------------------------------------------------------------------
 
-def _make_llm() -> ChatOllama:
-    return ChatOllama(
-        model=OLLAMA_MODEL,
-        base_url=OLLAMA_HOST,
+def _make_llm() -> ChatAnthropic:
+    return ChatAnthropic(
+        model_name=ANTHROPIC_MODEL,
         temperature=0,
-        format="json",
+        max_tokens=4096,
+        timeout=60,
+        stop=None,
     )
 
 
@@ -325,6 +338,13 @@ def _parse_result(state: AgentState) -> dict:
     if content is None:
         raise ValueError("Plan Architect: no AIMessage content found to parse.")
 
+    # Anthropic returns content as a list of blocks; flatten to text.
+    if isinstance(content, list):
+        content = "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in content
+        ).strip()
+
     try:
         blueprint = _parse_blueprint(content)
     except Exception as exc:
@@ -394,7 +414,7 @@ async def run_plan_architect(profile: dict) -> PlanBlueprint:
     Run the Plan Architect StateGraph for the given athlete profile dict.
 
     Uses a LangGraph StateGraph with:
-    - ChatOllama (format="json", temperature=0) for deterministic, structured output
+    - ChatAnthropic (temperature=0) for deterministic, structured output
     - compute_zones tool for optional zone lookup (loops back to LLM with result)
     - _parse_blueprint() to validate the final AIMessage into a PlanBlueprint
 
