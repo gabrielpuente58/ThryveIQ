@@ -31,6 +31,9 @@ interface Profile {
   days_available: number;
   strongest_discipline: string;
   weakest_discipline: string;
+  ftp?: number;
+  lthr?: number;
+  css?: string;
 }
 
 const LABELS: Record<string, string> = {
@@ -432,27 +435,27 @@ export default function ProfileScreen() {
             <Card style={styles.section}>
               <View style={styles.snapshotGrid}>
                 <SnapshotItem
-                  label="Goal"
-                  value={LABELS[profile.goal] ?? profile.goal}
-                  icon="flag-outline"
+                  label="FTP"
+                  value={profile.ftp && profile.ftp > 0 ? `${profile.ftp} W` : "—"}
+                  icon="flash-outline"
                   colors={colors}
                 />
                 <SnapshotItem
-                  label="Experience"
-                  value={LABELS[profile.experience] ?? profile.experience}
-                  icon="barbell-outline"
+                  label="LTHR"
+                  value={profile.lthr && profile.lthr > 0 ? `${profile.lthr} bpm` : "—"}
+                  icon="heart-outline"
+                  colors={colors}
+                />
+                <SnapshotItem
+                  label="CSS"
+                  value={profile.css && profile.css.trim() ? `${profile.css} /100m` : "—"}
+                  icon="water-outline"
                   colors={colors}
                 />
                 <SnapshotItem
                   label="Weekly Hours"
                   value={`${profile.weekly_hours}h`}
                   icon="time-outline"
-                  colors={colors}
-                />
-                <SnapshotItem
-                  label="Days / Week"
-                  value={`${profile.days_available}`}
-                  icon="calendar-outline"
                   colors={colors}
                 />
               </View>
